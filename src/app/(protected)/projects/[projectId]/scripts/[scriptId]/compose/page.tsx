@@ -56,6 +56,13 @@ const END_INSERTION = "end";
 const FONT_SIZE_STORAGE_KEY = "poditor-compose-font-size-index";
 const FONT_SIZE_OPTIONS = ["xs", "sm", "md", "lg", "xl", "2xl"] as const;
 const MEMO_OPEN_STORAGE_KEY = "poditor-compose-memo-open";
+const MEMO_SPEAKER_ID = "__memo__";
+const MEMO_SPEAKER: ScriptSpeaker = {
+  id: MEMO_SPEAKER_ID,
+  name: "メモ",
+  color: "#A0AEC0",
+  updatedAt: ""
+};
 
 const InsertIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={2}>
@@ -441,7 +448,11 @@ const ProjectScriptComposePage = () => {
   const [referenceUrlInput, setReferenceUrlInput] = useState("");
   const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
   const [isSavingReference, setIsSavingReference] = useState(false);
+  const [shouldScrollToBottom, setShouldScrollToBottom] = useState(false);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const conversationScrollRef = useRef<HTMLDivElement | null>(null);
+  const editingDialogueTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editingSectionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -480,10 +491,13 @@ const ProjectScriptComposePage = () => {
       setSpeakers(nextSpeakers);
       setItems(nextItems);
       setSelectedSpeakerId((prev) => {
-        if (prev && nextSpeakers.some((speaker) => speaker.id === prev)) {
+        if (
+          prev &&
+          (prev === MEMO_SPEAKER_ID || nextSpeakers.some((speaker) => speaker.id === prev))
+        ) {
           return prev;
         }
-        return nextSpeakers[0]?.id ?? "";
+        return nextSpeakers[0]?.id ?? MEMO_SPEAKER_ID;
       });
     } catch {
       setLoadErrorMessage("台本の取得に失敗しました。");
@@ -576,6 +590,44 @@ const ProjectScriptComposePage = () => {
     };
   }, [isMemoOpen, isReferencesOpen]);
 
+  useEffect(() => {
+    const textarea = editingDialogueTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [editingContent, editingDialogueId]);
+
+  useEffect(() => {
+    const textarea = editingSectionTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [editingSectionTitle, editingSectionId]);
+
+  useEffect(() => {
+    if (!shouldScrollToBottom) {
+      return;
+    }
+
+    const container = conversationScrollRef.current;
+    if (!container) {
+      setShouldScrollToBottom(false);
+      return;
+    }
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth"
+    });
+    setShouldScrollToBottom(false);
+  }, [items, shouldScrollToBottom]);
+
   const handleAddDialogue = async () => {
     const trimmedContent = contentInput.trim();
     const trimmedMediaUrl = normalizeUrl(mediaUrlInput);
@@ -630,6 +682,7 @@ const ProjectScriptComposePage = () => {
       setMediaTypeInput("image");
       setInsertionTarget(END_INSERTION);
       const nextItems = await fetchProjectScriptItems(projectId, scriptId);
+      setShouldScrollToBottom(true);
       setItems(nextItems);
     } catch {
       setActionErrorMessage("投稿に失敗しました。");
@@ -665,6 +718,7 @@ const ProjectScriptComposePage = () => {
       setInputMode("dialogue");
       setInsertionTarget(END_INSERTION);
       const nextItems = await fetchProjectScriptItems(projectId, scriptId);
+      setShouldScrollToBottom(true);
       setItems(nextItems);
     } catch {
       setActionErrorMessage("セクションの追加に失敗しました。");
@@ -729,7 +783,6 @@ const ProjectScriptComposePage = () => {
       isSubmittingDialogue ||
       isSubmittingSection ||
       isUploadingImage ||
-      speakers.length === 0 ||
       !selectedSpeakerId ||
       !contentInput.trim()
     ) {
@@ -1114,18 +1167,34 @@ const ProjectScriptComposePage = () => {
           return ["------------------------", title, "------------------------"].join("\n");
         }
 
-        const speaker = speakerMap[block.speakerId];
+        const isMemoBlock = block.speakerId === MEMO_SPEAKER_ID;
+        const speaker = isMemoBlock ? MEMO_SPEAKER : speakerMap[block.speakerId];
         const speakerName = speaker?.name ?? "話者未設定";
         const lines: string[] = [];
 
         if (block.dialogue) {
-          lines.push(`${speakerName}：${block.dialogue.content}`);
+          if (isMemoBlock) {
+            lines.push("*************************");
+            lines.push("<メモ>");
+            lines.push(block.dialogue.content);
+          } else {
+            lines.push(`${speakerName}：${block.dialogue.content}`);
+          }
         } else if (block.media) {
-          lines.push(`${speakerName}：`);
+          if (isMemoBlock) {
+            lines.push("*************************");
+            lines.push("<メモ>");
+          } else {
+            lines.push(`${speakerName}：`);
+          }
         }
 
         if (block.media?.url) {
           lines.push(block.media.url);
+        }
+
+        if (isMemoBlock) {
+          lines.push("*************************");
         }
 
         return lines.join("\n");
@@ -1257,6 +1326,7 @@ const ProjectScriptComposePage = () => {
     acc[speaker.id] = speaker;
     return acc;
   }, {});
+  const selectableSpeakers = [...speakers, MEMO_SPEAKER];
   const displayBlocks = buildDisplayBlocks(items);
   const contentFontSize = FONT_SIZE_OPTIONS[fontSizeIndex];
   const estimatedDurationLabel = formatEstimatedDuration(items);
@@ -1426,9 +1496,9 @@ const ProjectScriptComposePage = () => {
 
                 {inputMode === "dialogue" ? (
                   <FormControl>
-                    {speakers.length > 0 ? (
+                    {selectableSpeakers.length > 0 ? (
                       <SimpleGrid columns={5} spacing={2}>
-                        {speakers.map((speaker) => {
+                        {selectableSpeakers.map((speaker) => {
                           const isSelected = selectedSpeakerId === speaker.id;
 
                           return (
@@ -1454,7 +1524,7 @@ const ProjectScriptComposePage = () => {
                                   h="20px"
                                   rounded="full"
                                   bg={speaker.color}
-                                  color="white"
+                                  color={speaker.id === MEMO_SPEAKER_ID ? "gray.700" : "white"}
                                   display="flex"
                                   alignItems="center"
                                   justifyContent="center"
@@ -1502,7 +1572,7 @@ const ProjectScriptComposePage = () => {
                   <>
                     <FormControl>
                       <Textarea
-                        placeholder="ここにセリフを入力"
+                        placeholder={selectedSpeakerId === MEMO_SPEAKER_ID ? "ここにメモを入力" : "ここにセリフを入力"}
                         minH="220px"
                         resize="vertical"
                         value={contentInput}
@@ -1512,7 +1582,7 @@ const ProjectScriptComposePage = () => {
                       />
                     </FormControl>
 
-                    {speakers.length === 0 ? (
+                    {speakers.length === 0 && selectedSpeakerId !== MEMO_SPEAKER_ID ? (
                       <Alert status="warning" rounded="md">
                         <AlertIcon />
                         話者が未登録です。先に台本基本設定ページで話者を追加してください。
@@ -1612,7 +1682,6 @@ const ProjectScriptComposePage = () => {
                         isDisabled={
                           isUploadingImage ||
                           isSubmittingSection ||
-                          speakers.length === 0 ||
                           !selectedSpeakerId ||
                           !contentInput.trim()
                         }
@@ -1628,6 +1697,7 @@ const ProjectScriptComposePage = () => {
         </Box>
 
         <Box
+          ref={conversationScrollRef}
           bg="gray.50"
           h={{ base: "auto", lg: "100vh" }}
           overflowY="auto"
@@ -1782,7 +1852,7 @@ const ProjectScriptComposePage = () => {
               const section = block.section;
               const dialogue = block.dialogue;
               const media = block.media;
-              const speaker = speakerMap[block.speakerId];
+              const speaker = block.speakerId === MEMO_SPEAKER_ID ? MEMO_SPEAKER : speakerMap[block.speakerId];
               const color = speaker?.color ?? "#CBD5E0";
               const name = speaker?.name ?? "話者未設定";
               const isDragged = draggedItemId === blockKey;
@@ -1901,11 +1971,13 @@ const ProjectScriptComposePage = () => {
                               {isSectionEditing ? (
                                 <Stack spacing={3}>
                                   <Textarea
+                                    ref={editingSectionTextareaRef}
                                     value={editingSectionTitle}
                                     onChange={(event) => setEditingSectionTitle(event.target.value)}
                                     onKeyDown={(event) => handleSectionInputKeyDown(event, section)}
                                     minH="80px"
-                                    resize="vertical"
+                                    overflow="hidden"
+                                    resize="none"
                                     bg="white"
                                     autoFocus
                                   />
@@ -1946,21 +2018,40 @@ const ProjectScriptComposePage = () => {
                                 color="gray.500"
                                 mb={1}
                                 onClick={() => void handleCycleSpeaker(block)}
-                                cursor={!isSelectionMode && speakers.length > 1 ? "pointer" : "default"}
+                                cursor={
+                                  !isSelectionMode &&
+                                  block.speakerId !== MEMO_SPEAKER_ID &&
+                                  speakers.length > 1
+                                    ? "pointer"
+                                    : "default"
+                                }
                                 textAlign="left"
-                                _hover={!isSelectionMode && speakers.length > 1 ? { color: "gray.700" } : undefined}
-                                disabled={isSelectionMode || isChangingSpeaker || isSavingEdit}
+                                _hover={
+                                  !isSelectionMode &&
+                                  block.speakerId !== MEMO_SPEAKER_ID &&
+                                  speakers.length > 1
+                                    ? { color: "gray.700" }
+                                    : undefined
+                                }
+                                disabled={
+                                  isSelectionMode ||
+                                  isChangingSpeaker ||
+                                  isSavingEdit ||
+                                  block.speakerId === MEMO_SPEAKER_ID
+                                }
                               >
                                 {name}
                               </Box>
                               {isEditing ? (
                                 <Stack spacing={3}>
                                   <Textarea
+                                    ref={editingDialogueTextareaRef}
                                     value={editingContent}
                                     onChange={(event) => setEditingContent(event.target.value)}
                                     onKeyDown={(event) => handleEditInputKeyDown(event, dialogue)}
                                     minH="120px"
-                                    resize="vertical"
+                                    overflow="hidden"
+                                    resize="none"
                                     bg="white"
                                     autoFocus
                                   />
