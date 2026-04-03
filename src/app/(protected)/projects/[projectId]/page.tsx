@@ -1,8 +1,8 @@
 "use client";
 
-import { KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import NextLink from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   Alert,
   AlertIcon,
@@ -21,6 +21,7 @@ import {
   Icon,
   IconButton,
   Input,
+  Select,
   Stack,
   Text,
   Tooltip
@@ -32,10 +33,11 @@ import {
   deleteProjectScript,
   duplicateProjectScript,
   fetchScriptsByProjectId,
+  updateProjectScriptStatus,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
 import { ProjectDetail, ProjectMember } from "@/types/project";
-import { ScriptSummary } from "@/types/script";
+import { ScriptStatus, ScriptSummary } from "@/types/script";
 
 const SettingsIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
@@ -115,6 +117,19 @@ const CancelIcon = () => (
   </Icon>
 );
 
+const AddIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M12 5v14M5 12h14"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const formatUpdatedAt = (updatedAt: string): string => {
   return new Intl.DateTimeFormat("ja-JP", {
     year: "numeric",
@@ -134,8 +149,33 @@ const formatCreatedAt = (createdAt: string): string => {
   }).format(new Date(createdAt));
 };
 
+const SCRIPT_STATUS_LABELS: Record<ScriptStatus, string> = {
+  draft: "下書き",
+  completed: "完成",
+  recorded: "収録済"
+};
+
+const SCRIPT_STATUS_COLOR_SCHEMES: Record<ScriptStatus, string> = {
+  draft: "gray",
+  completed: "green",
+  recorded: "purple"
+};
+
+const getNextScriptStatus = (status: ScriptStatus): ScriptStatus => {
+  if (status === "draft") {
+    return "completed";
+  }
+
+  if (status === "completed") {
+    return "recorded";
+  }
+
+  return "draft";
+};
+
 const ProjectDetailPage = () => {
   const params = useParams<{ projectId: string }>();
+  const router = useRouter();
   const { user } = useAuth();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [members, setMembers] = useState<ProjectMember[]>([]);
@@ -147,8 +187,11 @@ const ProjectDetailPage = () => {
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [editingTitleInput, setEditingTitleInput] = useState("");
   const [isSavingScriptTitleId, setIsSavingScriptTitleId] = useState<string | null>(null);
+  const [isSavingScriptStatusId, setIsSavingScriptStatusId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | ScriptStatus>("all");
   const [memberEmailInput, setMemberEmailInput] = useState("");
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const singleClickTimeoutRef = useRef<number | null>(null);
 
   const projectId = params.projectId;
 
@@ -188,6 +231,14 @@ const ProjectDetailPage = () => {
   useEffect(() => {
     void loadProject();
   }, [loadProject]);
+
+  useEffect(() => {
+    return () => {
+      if (singleClickTimeoutRef.current) {
+        window.clearTimeout(singleClickTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleDeleteScript = async (scriptId: string) => {
     if (!window.confirm("この台本を削除しますか？")) {
@@ -231,6 +282,21 @@ const ProjectDetailPage = () => {
   const handleCancelEditingScriptTitle = () => {
     setEditingScriptId(null);
     setEditingTitleInput("");
+  };
+
+  const handleScriptTitleClick = (scriptId: string) => {
+    if (editingScriptId) {
+      return;
+    }
+
+    if (singleClickTimeoutRef.current) {
+      window.clearTimeout(singleClickTimeoutRef.current);
+    }
+
+    singleClickTimeoutRef.current = window.setTimeout(() => {
+      router.push(`/projects/${projectId}/scripts/${scriptId}/compose`);
+      singleClickTimeoutRef.current = null;
+    }, 220);
   };
 
   const handleSaveScriptTitle = async (scriptId: string) => {
@@ -279,6 +345,28 @@ const ProjectDetailPage = () => {
     }
   };
 
+  const handleCycleScriptStatus = async (script: ScriptSummary) => {
+    const nextStatus = getNextScriptStatus(script.status);
+
+    setIsSavingScriptStatusId(script.id);
+    setErrorMessage(null);
+
+    try {
+      await updateProjectScriptStatus(projectId, script.id, { status: nextStatus });
+      setScripts((prev) =>
+        prev.map((currentScript) =>
+          currentScript.id === script.id
+            ? { ...currentScript, status: nextStatus, updatedAt: new Date().toISOString() }
+            : currentScript
+        )
+      );
+    } catch {
+      setErrorMessage("台本ステータスの更新に失敗しました。");
+    } finally {
+      setIsSavingScriptStatusId(null);
+    }
+  };
+
   const handleAddMember = async () => {
     const trimmedEmail = memberEmailInput.trim();
 
@@ -309,6 +397,8 @@ const ProjectDetailPage = () => {
     }
   };
 
+  const filteredScripts = scripts.filter((script) => statusFilter === "all" || script.status === statusFilter);
+
   return (
     <Box bg="gray.50" minH="100vh" py={10}>
       <Container maxW="5xl">
@@ -323,9 +413,6 @@ const ProjectDetailPage = () => {
               ) : null}
             </Stack>
             <Stack direction={{ base: "column", sm: "row" }} spacing={3}>
-              <Button as={NextLink} href={`/projects/${projectId}/scripts/new`} colorScheme="teal">
-                新規台本作成
-              </Button>
               <Button as={NextLink} href="/projects" variant="outline">
                 プロジェクト一覧へ戻る
               </Button>
@@ -420,7 +507,34 @@ const ProjectDetailPage = () => {
 
           <Box bg="white" p={6} rounded="md" borderWidth="1px">
             <Stack spacing={4}>
-              <Heading size="md">台本一覧</Heading>
+              <Stack direction="row" justify="space-between" align="center">
+                <Heading size="md">台本一覧</Heading>
+                <Tooltip label="新規台本作成" hasArrow>
+                  <IconButton
+                    as={NextLink}
+                    href={`/projects/${projectId}/scripts/new`}
+                    aria-label="新規台本作成"
+                    icon={<AddIcon />}
+                    size="sm"
+                    colorScheme="teal"
+                    variant="outline"
+                    rounded="full"
+                  />
+                </Tooltip>
+              </Stack>
+
+              <FormControl maxW="220px">
+                <Select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as "all" | ScriptStatus)}
+                  size="sm"
+                >
+                  <option value="all">全て</option>
+                  <option value="draft">下書き</option>
+                  <option value="completed">完成</option>
+                  <option value="recorded">収録済</option>
+                </Select>
+              </FormControl>
 
               {isLoading ? <Text color="gray.600">台本を読み込んでいます...</Text> : null}
 
@@ -428,7 +542,11 @@ const ProjectDetailPage = () => {
                 <Text color="gray.600">このプロジェクトにはまだ台本がありません。</Text>
               ) : null}
 
-              {scripts.map((script) => (
+              {!isLoading && scripts.length > 0 && filteredScripts.length === 0 ? (
+                <Text color="gray.600">該当するステータスの台本はありません。</Text>
+              ) : null}
+
+              {filteredScripts.map((script) => (
                 <Box
                   key={script.id}
                   borderBottomWidth="1px"
@@ -481,12 +599,40 @@ const ProjectDetailPage = () => {
                         fontWeight="medium"
                         noOfLines={1}
                         flex="1 1 auto"
-                        cursor="text"
-                        onDoubleClick={() => handleStartEditingScriptTitle(script)}
+                        cursor="pointer"
+                        onClick={() => handleScriptTitleClick(script.id)}
+                        onDoubleClick={() => {
+                          if (singleClickTimeoutRef.current) {
+                            window.clearTimeout(singleClickTimeoutRef.current);
+                            singleClickTimeoutRef.current = null;
+                          }
+                          handleStartEditingScriptTitle(script);
+                        }}
                       >
                         {script.title}
                       </Text>
                     )}
+                    <Badge
+                      as="button"
+                      type="button"
+                      colorScheme={SCRIPT_STATUS_COLOR_SCHEMES[script.status]}
+                      borderRadius="full"
+                      px={2.5}
+                      py={1}
+                      flexShrink={0}
+                      cursor={isSavingScriptStatusId === script.id || editingScriptId === script.id ? "default" : "pointer"}
+                      opacity={isSavingScriptStatusId === script.id ? 0.6 : 1}
+                      transition="opacity 0.2s ease"
+                      onClick={() => {
+                        if (isSavingScriptStatusId === script.id || editingScriptId === script.id) {
+                          return;
+                        }
+
+                        void handleCycleScriptStatus(script);
+                      }}
+                    >
+                      {SCRIPT_STATUS_LABELS[script.status]}
+                    </Badge>
                     <Text color="gray.600" fontSize="sm" whiteSpace="nowrap" flexShrink={0}>
                       更新日時: {formatUpdatedAt(script.updatedAt)}
                     </Text>

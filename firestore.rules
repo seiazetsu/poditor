@@ -22,7 +22,7 @@ service cloud.firestore {
         && request.resource.data.email is string
         && emailKey == request.resource.data.email
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.email == lower(request.resource.data.email);
+        && !request.resource.data.email.matches('.*[A-Z].*');
       allow delete: if false;
     }
 

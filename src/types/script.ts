@@ -1,6 +1,9 @@
+export type ScriptStatus = "draft" | "completed" | "recorded";
+
 export type ScriptSummary = {
   id: string;
   title: string;
+  status: ScriptStatus;
   sortOrder?: number;
   updatedAt: string;
 };

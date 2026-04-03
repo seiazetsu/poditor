@@ -16,6 +16,7 @@ import {
   IconButton,
   Input,
   Link,
+  Select,
   Spinner,
   Stack,
   Text,
@@ -26,8 +27,8 @@ import { SaveStatus, SaveStatusNotice } from "@/components/scripts/save-status-n
 import { SpeakerManager } from "@/components/scripts/speaker-manager";
 import { useAuth } from "@/components/auth/auth-provider";
 import { fetchProjectByIdForUser } from "@/lib/firebase/projects";
-import { fetchProjectScriptById, updateProjectScriptTitle } from "@/lib/firebase/scripts";
-import { ScriptDetail } from "@/types/script";
+import { fetchProjectScriptById, updateProjectScriptStatus, updateProjectScriptTitle } from "@/lib/firebase/scripts";
+import { ScriptDetail, ScriptStatus } from "@/types/script";
 
 const CopyIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
@@ -91,17 +92,27 @@ const formatDateTime = (value: string): string => {
   }).format(new Date(value));
 };
 
+const SCRIPT_STATUS_OPTIONS: Array<{ value: ScriptStatus; label: string }> = [
+  { value: "draft", label: "下書き" },
+  { value: "completed", label: "完成" },
+  { value: "recorded", label: "収録済" }
+];
+
 const ProjectScriptSettingsPage = () => {
   const params = useParams<{ projectId: string; scriptId: string }>();
   const { user } = useAuth();
   const [script, setScript] = useState<ScriptDetail | null>(null);
   const [titleInput, setTitleInput] = useState("");
+  const [statusInput, setStatusInput] = useState<ScriptStatus>("draft");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSafeNotFound, setIsSafeNotFound] = useState(false);
   const [isSavingTitle, setIsSavingTitle] = useState(false);
   const [titleSaveStatus, setTitleSaveStatus] = useState<SaveStatus>("idle");
   const [titleSaveMessage, setTitleSaveMessage] = useState<string | null>(null);
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
+  const [statusSaveStatus, setStatusSaveStatus] = useState<SaveStatus>("idle");
+  const [statusSaveMessage, setStatusSaveMessage] = useState<string | null>(null);
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -135,6 +146,7 @@ const ProjectScriptSettingsPage = () => {
 
       setScript(scriptData);
       setTitleInput(scriptData.title);
+      setStatusInput(scriptData.status);
     } catch {
       setErrorMessage("台本の取得に失敗しました。");
     } finally {
@@ -174,6 +186,35 @@ const ProjectScriptSettingsPage = () => {
       setTitleSaveMessage("タイトルの保存に失敗しました。");
     } finally {
       setIsSavingTitle(false);
+    }
+  };
+
+  const handleSaveStatus = async () => {
+    if (!script) {
+      return;
+    }
+
+    setIsSavingStatus(true);
+    setStatusSaveStatus("saving");
+    setStatusSaveMessage("ステータスを保存しています...");
+    setErrorMessage(null);
+
+    try {
+      await updateProjectScriptStatus(projectId, script.id, { status: statusInput });
+      const nextScript = {
+        ...script,
+        status: statusInput,
+        updatedAt: new Date().toISOString()
+      };
+
+      setScript(nextScript);
+      setStatusSaveStatus("success");
+      setStatusSaveMessage("ステータスを保存しました。");
+    } catch {
+      setStatusSaveStatus("error");
+      setStatusSaveMessage("ステータスの保存に失敗しました。");
+    } finally {
+      setIsSavingStatus(false);
     }
   };
 
@@ -298,23 +339,51 @@ const ProjectScriptSettingsPage = () => {
                 <Stack spacing={4}>
                   <Heading size="md">台本基本情報</Heading>
                   <SaveStatusNotice status={titleSaveStatus} message={titleSaveMessage} />
+                  <SaveStatusNotice status={statusSaveStatus} message={statusSaveMessage} />
                   <FormControl isRequired>
                     <FormLabel>タイトル</FormLabel>
-                    <Input value={titleInput} onChange={(event) => setTitleInput(event.target.value)} maxLength={120} />
+                    <Stack direction="row" spacing={3} align="center">
+                      <Input value={titleInput} onChange={(event) => setTitleInput(event.target.value)} maxLength={120} />
+                      <Tooltip label="タイトルを保存" hasArrow>
+                        <IconButton
+                          aria-label="タイトルを保存"
+                          icon={<SaveIcon />}
+                          colorScheme="teal"
+                          variant="outline"
+                          onClick={() => void handleSaveTitle()}
+                          isLoading={isSavingTitle}
+                          isDisabled={!titleInput.trim() || titleInput.trim() === script.title}
+                          rounded="full"
+                          flexShrink={0}
+                        />
+                      </Tooltip>
+                    </Stack>
                   </FormControl>
-                  <Tooltip label="タイトルを保存" hasArrow>
-                    <IconButton
-                      aria-label="タイトルを保存"
-                      icon={<SaveIcon />}
-                      alignSelf="flex-start"
-                      colorScheme="teal"
-                      variant="outline"
-                      onClick={() => void handleSaveTitle()}
-                      isLoading={isSavingTitle}
-                      isDisabled={!titleInput.trim() || titleInput.trim() === script.title}
-                      rounded="full"
-                    />
-                  </Tooltip>
+                  <FormControl>
+                    <FormLabel>ステータス</FormLabel>
+                    <Stack direction="row" spacing={3} align="center">
+                      <Select value={statusInput} onChange={(event) => setStatusInput(event.target.value as ScriptStatus)}>
+                        {SCRIPT_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <Tooltip label="ステータスを保存" hasArrow>
+                        <IconButton
+                          aria-label="ステータスを保存"
+                          icon={<SaveIcon />}
+                          colorScheme="teal"
+                          variant="outline"
+                          onClick={() => void handleSaveStatus()}
+                          isLoading={isSavingStatus}
+                          isDisabled={statusInput === script.status}
+                          rounded="full"
+                          flexShrink={0}
+                        />
+                      </Tooltip>
+                    </Stack>
+                  </FormControl>
                 </Stack>
               </Box>
 
