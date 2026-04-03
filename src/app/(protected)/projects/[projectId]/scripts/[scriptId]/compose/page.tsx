@@ -196,6 +196,19 @@ const ReferenceIcon = () => (
   </Icon>
 );
 
+const ScrollToBottomIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M12 5v10M8 11l4 4 4-4"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const EditIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={3.5}>
     <path
@@ -448,11 +461,12 @@ const ProjectScriptComposePage = () => {
   const [referenceUrlInput, setReferenceUrlInput] = useState("");
   const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
   const [isSavingReference, setIsSavingReference] = useState(false);
-  const [shouldScrollToBottom, setShouldScrollToBottom] = useState(false);
+  const [scrollTargetItemId, setScrollTargetItemId] = useState<string | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationScrollRef = useRef<HTMLDivElement | null>(null);
   const editingDialogueTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editingSectionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const blockElementMapRef = useRef<Record<string, HTMLDivElement | null>>({});
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -611,22 +625,23 @@ const ProjectScriptComposePage = () => {
   }, [editingSectionTitle, editingSectionId]);
 
   useEffect(() => {
-    if (!shouldScrollToBottom) {
+    if (!scrollTargetItemId) {
       return;
     }
 
-    const container = conversationScrollRef.current;
-    if (!container) {
-      setShouldScrollToBottom(false);
-      return;
+    const blocks = buildDisplayBlocks(items);
+    const targetBlock = blocks.find((block) => block.itemIds.includes(scrollTargetItemId));
+    const targetElement = targetBlock ? blockElementMapRef.current[targetBlock.key] : null;
+
+    if (targetElement) {
+      targetElement.scrollIntoView({
+        behavior: "smooth",
+        block: "end"
+      });
     }
 
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: "smooth"
-    });
-    setShouldScrollToBottom(false);
-  }, [items, shouldScrollToBottom]);
+    setScrollTargetItemId(null);
+  }, [items, scrollTargetItemId]);
 
   const handleAddDialogue = async () => {
     const trimmedContent = contentInput.trim();
@@ -682,7 +697,7 @@ const ProjectScriptComposePage = () => {
       setMediaTypeInput("image");
       setInsertionTarget(END_INSERTION);
       const nextItems = await fetchProjectScriptItems(projectId, scriptId);
-      setShouldScrollToBottom(true);
+      setScrollTargetItemId(createdMediaId ?? createdId);
       setItems(nextItems);
     } catch {
       setActionErrorMessage("投稿に失敗しました。");
@@ -718,7 +733,7 @@ const ProjectScriptComposePage = () => {
       setInputMode("dialogue");
       setInsertionTarget(END_INSERTION);
       const nextItems = await fetchProjectScriptItems(projectId, scriptId);
-      setShouldScrollToBottom(true);
+      setScrollTargetItemId(createdId);
       setItems(nextItems);
     } catch {
       setActionErrorMessage("セクションの追加に失敗しました。");
@@ -1111,6 +1126,18 @@ const ProjectScriptComposePage = () => {
     }
 
     window.print();
+  };
+
+  const handleScrollConversationToBottom = () => {
+    const container = conversationScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth"
+    });
   };
 
   const handleCycleSpeaker = async (block: DisplayBlock) => {
@@ -1816,6 +1843,43 @@ const ProjectScriptComposePage = () => {
             </Stack>
           </Box>
 
+          <Box
+            position="fixed"
+            bottom={{ base: 4, lg: 6 }}
+            left={{
+              base: "50%",
+              lg: isMemoOpen
+                ? "calc(320px + ((100vw - 320px - max(320px, 33vw)) / 2))"
+                : "calc(320px + ((100vw - 320px) / 2))"
+            }}
+            transform="translateX(-50%)"
+            zIndex={20}
+            sx={{
+              "@media print": {
+                display: "none"
+              }
+            }}
+          >
+            <Tooltip label="最下までスクロール" hasArrow>
+              <IconButton
+                aria-label="最下までスクロール"
+                icon={<ScrollToBottomIcon />}
+                variant="ghost"
+                rounded="full"
+                color="blackAlpha.500"
+                bg="transparent"
+                borderWidth="0"
+                boxShadow="none"
+                minW="28px"
+                w="28px"
+                h="28px"
+                _hover={{ bg: "blackAlpha.50", color: "blackAlpha.700" }}
+                _active={{ bg: "blackAlpha.100", color: "blackAlpha.800" }}
+                onClick={handleScrollConversationToBottom}
+              />
+            </Tooltip>
+          </Box>
+
           <Stack spacing={4} align="stretch" minH="100%">
             {items.length === 0 ? (
               <Box borderWidth="1px" borderStyle="dashed" borderColor="gray.300" rounded="xl" p={6} bg="white">
@@ -1863,7 +1927,14 @@ const ProjectScriptComposePage = () => {
               const isSelectedBlock = selectedBlockKeys.includes(blockKey);
 
               return (
-                <Stack key={blockKey} spacing={2} align="start">
+                <Stack
+                  key={blockKey}
+                  spacing={2}
+                  align="start"
+                  ref={(element) => {
+                    blockElementMapRef.current[blockKey] = element;
+                  }}
+                >
                   <Tooltip label={`${currentIndex + 1}件目の前に挿入`} hasArrow>
                     <IconButton
                       aria-label={`${currentIndex + 1}件目の前に挿入`}
