@@ -1,0 +1,72 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isProjectMember(projectId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    }
+
+    function isProjectOwner(projectId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid;
+    }
+
+    match /users/{emailKey} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.resource.data.email is string
+        && emailKey == request.resource.data.email
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == lower(request.resource.data.email);
+      allow delete: if false;
+    }
+
+    match /userProjects/{uid}/memberships/{projectId} {
+      allow read: if isSignedIn() && uid == request.auth.uid;
+      allow create, update: if (isSignedIn() && uid == request.auth.uid)
+        || isProjectOwner(projectId);
+      allow delete: if isProjectOwner(projectId);
+    }
+
+    // project 本体は参加者のみ read、owner のみ write。
+    match /projects/{projectId} {
+      allow read: if isProjectMember(projectId)
+        || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isProjectOwner(projectId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if isProjectOwner(projectId);
+
+      // members は参加者が read、owner が管理する。
+      match /members/{memberId} {
+        allow read: if isProjectMember(projectId)
+          || (isSignedIn() && resource.data.uid == request.auth.uid);
+        allow create, update, delete: if isProjectOwner(projectId);
+      }
+
+      // scripts とその配下は参加者なら read/write 可能。
+      match /scripts/{scriptId} {
+        allow read, write: if isProjectMember(projectId);
+
+        match /speakers/{speakerId} {
+          allow read, write: if isProjectMember(projectId);
+        }
+
+        match /items/{itemId} {
+          allow read, write: if isProjectMember(projectId);
+        }
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // 開発段階では、認証済みユーザーならプロジェクト配下の画像を read/write 可。
+    match /projects/{projectId}/scripts/{scriptId}/images/{imagePath=**} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

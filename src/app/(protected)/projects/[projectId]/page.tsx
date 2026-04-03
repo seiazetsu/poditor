@@ -1,0 +1,560 @@
+"use client";
+
+import { KeyboardEvent, useCallback, useEffect, useState } from "react";
+import NextLink from "next/link";
+import { useParams } from "next/navigation";
+import {
+  Alert,
+  AlertIcon,
+  Accordion,
+  AccordionButton,
+  AccordionIcon,
+  AccordionItem,
+  AccordionPanel,
+  Badge,
+  Box,
+  Button,
+  Container,
+  FormControl,
+  FormLabel,
+  Heading,
+  Icon,
+  IconButton,
+  Input,
+  Stack,
+  Text,
+  Tooltip
+} from "@chakra-ui/react";
+
+import { useAuth } from "@/components/auth/auth-provider";
+import { addProjectMember, fetchProjectByIdForUser, fetchProjectMembers } from "@/lib/firebase/projects";
+import {
+  deleteProjectScript,
+  duplicateProjectScript,
+  fetchScriptsByProjectId,
+  updateProjectScriptTitle
+} from "@/lib/firebase/scripts";
+import { ProjectDetail, ProjectMember } from "@/types/project";
+import { ScriptSummary } from "@/types/script";
+
+const SettingsIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M12 3v3M12 18v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M3 12h3M18 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const ComposeIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M5 12h14M15 8l4 4-4 4"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const DuplicateIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M9 9h10v10H9zM5 5h10v2M5 5v10h2"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const DeleteIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const SaveIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M5 5h11l3 3v11H5V5Zm3 0v5h6V5M8 19v-5h8v5"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const CancelIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M7 7l10 10M17 7 7 17"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const formatUpdatedAt = (updatedAt: string): string => {
+  return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(updatedAt));
+};
+
+const formatCreatedAt = (createdAt: string): string => {
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(createdAt));
+};
+
+const ProjectDetailPage = () => {
+  const params = useParams<{ projectId: string }>();
+  const { user } = useAuth();
+  const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [scripts, setScripts] = useState<ScriptSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isDeletingScriptId, setIsDeletingScriptId] = useState<string | null>(null);
+  const [isDuplicatingScriptId, setIsDuplicatingScriptId] = useState<string | null>(null);
+  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
+  const [editingTitleInput, setEditingTitleInput] = useState("");
+  const [isSavingScriptTitleId, setIsSavingScriptTitleId] = useState<string | null>(null);
+  const [memberEmailInput, setMemberEmailInput] = useState("");
+  const [isAddingMember, setIsAddingMember] = useState(false);
+
+  const projectId = params.projectId;
+
+  const loadProject = useCallback(async () => {
+    if (!user || !projectId) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const projectData = await fetchProjectByIdForUser(projectId, user.uid);
+      if (!projectData) {
+        setProject(null);
+        setMembers([]);
+        setScripts([]);
+        setErrorMessage("対象のプロジェクトが見つからないか、アクセス権がありません。");
+        return;
+      }
+
+      const [nextMembers, nextScripts] = await Promise.all([
+        fetchProjectMembers(projectId),
+        fetchScriptsByProjectId(projectId)
+      ]);
+
+      setProject(projectData);
+      setMembers(nextMembers);
+      setScripts(nextScripts);
+    } catch {
+      setErrorMessage("プロジェクト詳細の取得に失敗しました。");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [projectId, user]);
+
+  useEffect(() => {
+    void loadProject();
+  }, [loadProject]);
+
+  const handleDeleteScript = async (scriptId: string) => {
+    if (!window.confirm("この台本を削除しますか？")) {
+      return;
+    }
+
+    setIsDeletingScriptId(scriptId);
+    setErrorMessage(null);
+
+    try {
+      await deleteProjectScript(projectId, scriptId);
+      setScripts((prev) => prev.filter((script) => script.id !== scriptId));
+    } catch {
+      setErrorMessage("台本の削除に失敗しました。");
+    } finally {
+      setIsDeletingScriptId(null);
+    }
+  };
+
+  const handleDuplicateScript = async (scriptId: string) => {
+    setIsDuplicatingScriptId(scriptId);
+    setErrorMessage(null);
+
+    try {
+      await duplicateProjectScript(projectId, scriptId);
+      const nextScripts = await fetchScriptsByProjectId(projectId);
+      setScripts(nextScripts);
+    } catch {
+      setErrorMessage("台本の複製に失敗しました。");
+    } finally {
+      setIsDuplicatingScriptId(null);
+    }
+  };
+
+  const handleStartEditingScriptTitle = (script: ScriptSummary) => {
+    setEditingScriptId(script.id);
+    setEditingTitleInput(script.title);
+    setErrorMessage(null);
+  };
+
+  const handleCancelEditingScriptTitle = () => {
+    setEditingScriptId(null);
+    setEditingTitleInput("");
+  };
+
+  const handleSaveScriptTitle = async (scriptId: string) => {
+    const trimmedTitle = editingTitleInput.trim();
+    if (!trimmedTitle) {
+      setErrorMessage("タイトルを入力してください。");
+      return;
+    }
+
+    setIsSavingScriptTitleId(scriptId);
+    setErrorMessage(null);
+
+    try {
+      await updateProjectScriptTitle(projectId, scriptId, { title: trimmedTitle });
+      setScripts((prev) =>
+        prev.map((script) =>
+          script.id === scriptId ? { ...script, title: trimmedTitle, updatedAt: new Date().toISOString() } : script
+        )
+      );
+      handleCancelEditingScriptTitle();
+    } catch {
+      setErrorMessage("台本タイトルの更新に失敗しました。");
+    } finally {
+      setIsSavingScriptTitleId(null);
+    }
+  };
+
+  const handleScriptTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>, script: ScriptSummary) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (isSavingScriptTitleId !== script.id) {
+        handleCancelEditingScriptTitle();
+      }
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (
+        isSavingScriptTitleId !== script.id &&
+        editingTitleInput.trim() &&
+        editingTitleInput.trim() !== script.title
+      ) {
+        void handleSaveScriptTitle(script.id);
+      }
+    }
+  };
+
+  const handleAddMember = async () => {
+    const trimmedEmail = memberEmailInput.trim();
+
+    if (!trimmedEmail) {
+      setErrorMessage("参加者追加にはメールアドレスが必要です。");
+      return;
+    }
+
+    setIsAddingMember(true);
+    setErrorMessage(null);
+
+    try {
+      await addProjectMember(projectId, {
+        email: trimmedEmail,
+        role: "member"
+      });
+      setMemberEmailInput("");
+      const nextMembers = await fetchProjectMembers(projectId);
+      setMembers(nextMembers);
+    } catch (error) {
+      if (error instanceof Error && error.message) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("参加者の追加に失敗しました。");
+      }
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
+
+  return (
+    <Box bg="gray.50" minH="100vh" py={10}>
+      <Container maxW="5xl">
+        <Stack spacing={6}>
+          <Stack direction={{ base: "column", sm: "row" }} justify="space-between" align="start">
+            <Stack spacing={1}>
+              <Heading size="lg">{project?.name ?? "プロジェクト詳細"}</Heading>
+              {project ? (
+                <Text color="gray.600" fontSize="sm">
+                  更新日時: {formatUpdatedAt(project.updatedAt)}
+                </Text>
+              ) : null}
+            </Stack>
+            <Stack direction={{ base: "column", sm: "row" }} spacing={3}>
+              <Button as={NextLink} href={`/projects/${projectId}/scripts/new`} colorScheme="teal">
+                新規台本作成
+              </Button>
+              <Button as={NextLink} href="/projects" variant="outline">
+                プロジェクト一覧へ戻る
+              </Button>
+            </Stack>
+          </Stack>
+
+          {errorMessage ? (
+            <Alert status="error" rounded="md">
+              <AlertIcon />
+              {errorMessage}
+            </Alert>
+          ) : null}
+
+          <Accordion allowToggle bg="white" rounded="md" borderWidth="1px" overflow="hidden">
+            <AccordionItem border="0">
+              <AccordionButton px={6} py={5}>
+                <Box flex="1" textAlign="left">
+                  <Heading size="md">設定</Heading>
+                </Box>
+                <AccordionIcon />
+              </AccordionButton>
+              <AccordionPanel px={6} pb={6}>
+                <Stack spacing={4}>
+                  <Heading size="sm">参加メンバー</Heading>
+                  {isLoading ? (
+                    <Text color="gray.600">メンバーを読み込んでいます...</Text>
+                  ) : (
+                    <Stack spacing={3}>
+                      {members.map((member) => (
+                        <Stack
+                          key={member.id}
+                          direction={{ base: "column", sm: "row" }}
+                          justify="space-between"
+                          align={{ base: "start", sm: "center" }}
+                          spacing={3}
+                          borderWidth="1px"
+                          rounded="md"
+                          p={3}
+                        >
+                          <Stack spacing={1}>
+                            <Text fontWeight="medium">{member.email || "email未設定"}</Text>
+                            <Text fontSize="sm" color="gray.600">
+                              uid: {member.uid}
+                            </Text>
+                            <Text fontSize="xs" color="gray.500">
+                              追加日時: {formatCreatedAt(member.createdAt)}
+                            </Text>
+                          </Stack>
+                          <Badge
+                            px={3}
+                            py={1}
+                            borderRadius="full"
+                            colorScheme={member.role === "owner" ? "purple" : "teal"}
+                          >
+                            {member.role}
+                          </Badge>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
+
+                  <Box borderWidth="1px" rounded="md" p={4}>
+                    <Stack spacing={3}>
+                      <Heading size="sm">参加者を追加</Heading>
+                      <Text fontSize="sm" color="gray.600">
+                        初期実装ではメールアドレスだけを入力して member として追加します。
+                      </Text>
+                      <FormControl isRequired>
+                        <FormLabel>メールアドレス</FormLabel>
+                        <Input
+                          type="email"
+                          value={memberEmailInput}
+                          onChange={(event) => setMemberEmailInput(event.target.value)}
+                        />
+                      </FormControl>
+                      <Button
+                        alignSelf="flex-start"
+                        colorScheme="teal"
+                        variant="outline"
+                        onClick={() => void handleAddMember()}
+                        isLoading={isAddingMember}
+                        isDisabled={!memberEmailInput.trim()}
+                      >
+                        member を追加
+                      </Button>
+                    </Stack>
+                  </Box>
+                </Stack>
+              </AccordionPanel>
+            </AccordionItem>
+          </Accordion>
+
+          <Box bg="white" p={6} rounded="md" borderWidth="1px">
+            <Stack spacing={4}>
+              <Heading size="md">台本一覧</Heading>
+
+              {isLoading ? <Text color="gray.600">台本を読み込んでいます...</Text> : null}
+
+              {!isLoading && scripts.length === 0 ? (
+                <Text color="gray.600">このプロジェクトにはまだ台本がありません。</Text>
+              ) : null}
+
+              {scripts.map((script) => (
+                <Box
+                  key={script.id}
+                  borderBottomWidth="1px"
+                  borderColor="gray.100"
+                  py={2}
+                >
+                  <Stack
+                    direction="row"
+                    align="center"
+                    justify="space-between"
+                    spacing={3}
+                    minH="36px"
+                  >
+                    {editingScriptId === script.id ? (
+                      <Stack direction="row" spacing={2} align="center" flex="1 1 auto" minW="0">
+                        <Input
+                          value={editingTitleInput}
+                          onChange={(event) => setEditingTitleInput(event.target.value)}
+                          onKeyDown={(event) => handleScriptTitleKeyDown(event, script)}
+                          size="sm"
+                          autoFocus
+                        />
+                        <Tooltip label="保存" hasArrow>
+                          <IconButton
+                            aria-label="保存"
+                            icon={<SaveIcon />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="teal"
+                            onClick={() => void handleSaveScriptTitle(script.id)}
+                            isLoading={isSavingScriptTitleId === script.id}
+                            isDisabled={!editingTitleInput.trim() || editingTitleInput.trim() === script.title}
+                            rounded="full"
+                          />
+                        </Tooltip>
+                        <Tooltip label="キャンセル" hasArrow>
+                          <IconButton
+                            aria-label="キャンセル"
+                            icon={<CancelIcon />}
+                            size="sm"
+                            variant="ghost"
+                            onClick={handleCancelEditingScriptTitle}
+                            isDisabled={isSavingScriptTitleId === script.id}
+                            rounded="full"
+                          />
+                        </Tooltip>
+                      </Stack>
+                    ) : (
+                      <Text
+                        fontWeight="medium"
+                        noOfLines={1}
+                        flex="1 1 auto"
+                        cursor="text"
+                        onDoubleClick={() => handleStartEditingScriptTitle(script)}
+                      >
+                        {script.title}
+                      </Text>
+                    )}
+                    <Text color="gray.600" fontSize="sm" whiteSpace="nowrap" flexShrink={0}>
+                      更新日時: {formatUpdatedAt(script.updatedAt)}
+                    </Text>
+                    <Stack direction="row" spacing={1} flexShrink={0}>
+                      <Tooltip label="基本設定" hasArrow>
+                        <IconButton
+                          as={NextLink}
+                          href={`/projects/${projectId}/scripts/${script.id}`}
+                          aria-label="基本設定"
+                          icon={<SettingsIcon />}
+                          size="sm"
+                          variant="ghost"
+                          colorScheme="teal"
+                          rounded="full"
+                        />
+                      </Tooltip>
+                      <Tooltip label="会話作成" hasArrow>
+                        <IconButton
+                          as={NextLink}
+                          href={`/projects/${projectId}/scripts/${script.id}/compose`}
+                          aria-label="会話作成"
+                          icon={<ComposeIcon />}
+                          size="sm"
+                          variant="ghost"
+                          colorScheme="blue"
+                          rounded="full"
+                        />
+                      </Tooltip>
+                      <Tooltip label="複製" hasArrow>
+                        <IconButton
+                          aria-label="複製"
+                          icon={<DuplicateIcon />}
+                          size="sm"
+                          variant="ghost"
+                          colorScheme="purple"
+                          onClick={() => {
+                            void handleDuplicateScript(script.id);
+                          }}
+                          isLoading={isDuplicatingScriptId === script.id}
+                          isDisabled={isDeletingScriptId === script.id || editingScriptId === script.id}
+                          rounded="full"
+                        />
+                      </Tooltip>
+                      <Tooltip label="削除" hasArrow>
+                        <IconButton
+                          aria-label="削除"
+                          icon={<DeleteIcon />}
+                          size="sm"
+                          variant="ghost"
+                          colorScheme="red"
+                          onClick={() => {
+                            void handleDeleteScript(script.id);
+                          }}
+                          isLoading={isDeletingScriptId === script.id}
+                          isDisabled={isDuplicatingScriptId === script.id || editingScriptId === script.id}
+                          rounded="full"
+                        />
+                      </Tooltip>
+                    </Stack>
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        </Stack>
+      </Container>
+    </Box>
+  );
+};
+
+export default ProjectDetailPage;
