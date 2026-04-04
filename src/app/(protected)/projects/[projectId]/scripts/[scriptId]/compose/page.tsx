@@ -153,6 +153,19 @@ const MemoIcon = () => (
   </Icon>
 );
 
+const ComposerIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M5 6h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const PrintIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
     <path
@@ -472,6 +485,7 @@ const ProjectScriptComposePage = () => {
   const [isDeletingSelection, setIsDeletingSelection] = useState(false);
   const [fontSizeIndex, setFontSizeIndex] = useState(0);
   const [isMemoOpen, setIsMemoOpen] = useState(false);
+  const [isMobileComposerOpen, setIsMobileComposerOpen] = useState(false);
   const [memoContent, setMemoContent] = useState("");
   const [isReferencesOpen, setIsReferencesOpen] = useState(false);
   const [referenceTextInput, setReferenceTextInput] = useState("");
@@ -622,6 +636,10 @@ const ProjectScriptComposePage = () => {
       if (isMemoOpen) {
         setIsMemoOpen(false);
       }
+
+      if (isMobileComposerOpen) {
+        setIsMobileComposerOpen(false);
+      }
     };
 
     window.addEventListener("keydown", handleWindowKeyDown);
@@ -629,7 +647,7 @@ const ProjectScriptComposePage = () => {
     return () => {
       window.removeEventListener("keydown", handleWindowKeyDown);
     };
-  }, [isMemoOpen, isReferencesOpen]);
+  }, [isMemoOpen, isMobileComposerOpen, isReferencesOpen]);
 
   useEffect(() => {
     const textarea = editingDialogueTextareaRef.current;
@@ -723,6 +741,7 @@ const ProjectScriptComposePage = () => {
       setPendingImageUrl(null);
       setMediaTypeInput("image");
       setInsertionTarget(END_INSERTION);
+      setIsMobileComposerOpen(false);
       const nextItems = await fetchProjectScriptItems(projectId, scriptId);
       setScrollTargetItemId(createdMediaId ?? createdId);
       setItems(nextItems);
@@ -759,6 +778,7 @@ const ProjectScriptComposePage = () => {
       setSectionTitleInput("");
       setInputMode("dialogue");
       setInsertionTarget(END_INSERTION);
+      setIsMobileComposerOpen(false);
       const nextItems = await fetchProjectScriptItems(projectId, scriptId);
       setScrollTargetItemId(createdId);
       setItems(nextItems);
@@ -1512,19 +1532,41 @@ const ProjectScriptComposePage = () => {
           }
         }}
       >
+        {isMobileComposerOpen ? (
+          <Box
+            position="fixed"
+            inset={0}
+            bg="blackAlpha.300"
+            zIndex={24}
+            display={{ base: "block", lg: "none" }}
+            onClick={() => setIsMobileComposerOpen(false)}
+          />
+        ) : null}
+
         <Box
           bg="white"
           borderRightWidth={{ base: "0", lg: "1px" }}
           borderBottomWidth={{ base: "1px", lg: "0" }}
           p={{ base: 4, lg: 5 }}
-          h={{ base: "auto", lg: "100vh" }}
+          h={{ base: "78vh", lg: "100vh" }}
+          maxH={{ base: "78vh", lg: "none" }}
           overflowY="auto"
           order={{ base: 2, lg: 1 }}
+          display={{ base: isMobileComposerOpen ? "block" : "none", lg: "block" }}
+          position={{ base: "fixed", lg: "relative" }}
+          left={{ base: 0, lg: "auto" }}
+          right={{ base: 0, lg: "auto" }}
+          bottom={{ base: 0, lg: "auto" }}
+          top={{ base: "auto", lg: "auto" }}
+          zIndex={{ base: 25, lg: "auto" }}
+          roundedTop={{ base: "2xl", lg: "none" }}
+          boxShadow={{ base: "2xl", lg: "none" }}
           sx={{
             "@media print": {
               display: "none"
             }
           }}
+          onClick={(event) => event.stopPropagation()}
         >
           <Stack spacing={5}>
             <Stack spacing={2}>
@@ -1853,6 +1895,36 @@ const ProjectScriptComposePage = () => {
                 _hover={{
                   bg: isMemoOpen ? "teal.600" : "white"
                 }}
+              />
+            </Tooltip>
+          </Box>
+
+          <Box
+            position="fixed"
+            bottom={{ base: 20, lg: "auto" }}
+            right={{ base: 4, lg: "auto" }}
+            zIndex={20}
+            display={{ base: "block", lg: "none" }}
+            sx={{
+              "@media print": {
+                display: "none"
+              }
+            }}
+          >
+            <Tooltip label={isMobileComposerOpen ? "投稿ビューを閉じる" : "投稿ビューを開く"} hasArrow placement="left">
+              <IconButton
+                aria-label={isMobileComposerOpen ? "投稿ビューを閉じる" : "投稿ビューを開く"}
+                icon={<ComposerIcon />}
+                variant={isMobileComposerOpen ? "solid" : "ghost"}
+                colorScheme="teal"
+                rounded="full"
+                bg={isMobileComposerOpen ? "teal.500" : "whiteAlpha.900"}
+                color={isMobileComposerOpen ? "white" : undefined}
+                boxShadow="md"
+                _hover={{
+                  bg: isMobileComposerOpen ? "teal.600" : "white"
+                }}
+                onClick={() => setIsMobileComposerOpen((current) => !current)}
               />
             </Tooltip>
           </Box>
