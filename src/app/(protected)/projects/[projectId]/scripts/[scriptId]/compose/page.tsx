@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, DragEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, KeyboardEvent, MutableRefObject, TouchEvent, useCallback, useEffect, useRef, useState } from "react";
 import NextLink from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -486,6 +486,8 @@ const ProjectScriptComposePage = () => {
   const editingDialogueTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editingSectionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const blockElementMapRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const memoTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const referencesTouchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -1193,6 +1195,35 @@ const ProjectScriptComposePage = () => {
       top: container.scrollHeight,
       behavior: "smooth"
     });
+  };
+
+  const handlePanelTouchStart = (
+    event: TouchEvent<HTMLDivElement>,
+    targetRef: MutableRefObject<{ x: number; y: number } | null>
+  ) => {
+    const touch = event.changedTouches[0];
+    targetRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handlePanelTouchEnd = (
+    event: TouchEvent<HTMLDivElement>,
+    targetRef: MutableRefObject<{ x: number; y: number } | null>,
+    onClose: () => void
+  ) => {
+    const startPoint = targetRef.current;
+    targetRef.current = null;
+
+    if (!startPoint) {
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - startPoint.x;
+    const deltaY = Math.abs(touch.clientY - startPoint.y);
+
+    if (deltaX > 72 && deltaY < 72) {
+      onClose();
+    }
   };
 
   const handleCycleSpeaker = async (block: DisplayBlock) => {
@@ -2335,6 +2366,13 @@ const ProjectScriptComposePage = () => {
                     rounded="xl"
                     boxShadow="lg"
                     p={4}
+                    onTouchStart={(event) => handlePanelTouchStart(event, referencesTouchStartRef)}
+                    onTouchEnd={(event) =>
+                      handlePanelTouchEnd(event, referencesTouchStartRef, () => {
+                        setIsReferencesOpen(false);
+                        handleCancelReferenceEdit();
+                      })
+                    }
                   >
                     <Stack spacing={3}>
                       <Input
@@ -2468,6 +2506,8 @@ const ProjectScriptComposePage = () => {
             bottom={{ base: 0, lg: "auto" }}
             left={{ base: 0, lg: "auto" }}
             zIndex={{ base: 30, lg: "auto" }}
+            onTouchStart={(event) => handlePanelTouchStart(event, memoTouchStartRef)}
+            onTouchEnd={(event) => handlePanelTouchEnd(event, memoTouchStartRef, () => setIsMemoOpen(false))}
             sx={{
               "@media print": {
                 display: "none"
