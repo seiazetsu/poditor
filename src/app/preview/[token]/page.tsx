@@ -42,6 +42,39 @@ const CopyIcon = () => (
   </Icon>
 );
 
+const PrintIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M7 9V4h10v5M6 18H5a2 2 0 0 1-2-2v-4a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v4a2 2 0 0 1-2 2h-1M7 14h10v6H7v-6Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <path
+      d="M17 12h.01"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const TextSmallerIcon = () => (
+  <Text fontSize="xs" fontWeight="bold" lineHeight="1">
+    A-
+  </Text>
+);
+
+const TextLargerIcon = () => (
+  <Text fontSize="sm" fontWeight="bold" lineHeight="1">
+    A+
+  </Text>
+);
+
 const isImageUrl = (url: string): boolean => /\.(png|jpe?g|gif|webp|svg|avif)(\?.*)?$/i.test(url);
 
 const getYouTubeThumbnailUrl = (url: string): string | null => {
@@ -154,6 +187,7 @@ const PublicScriptPreviewPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copyTooltipLabel, setCopyTooltipLabel] = useState("URLをコピー");
+  const [fontScale, setFontScale] = useState(1);
 
   const loadPreview = useCallback(async () => {
     if (!params.token) {
@@ -212,6 +246,21 @@ const PublicScriptPreviewPage = () => {
     }
   };
 
+  const handlePrint = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.print();
+  };
+
+  const handleDecreaseFont = () => {
+    setFontScale((prev) => Math.max(0.8, Math.round((prev - 0.1) * 10) / 10));
+  };
+
+  const handleIncreaseFont = () => {
+    setFontScale((prev) => Math.min(1.4, Math.round((prev + 0.1) * 10) / 10));
+  };
+
   if (isLoading) {
     return (
       <Box bg="gray.50" minH="100vh">
@@ -239,18 +288,57 @@ const PublicScriptPreviewPage = () => {
   return (
     <Box bg="gray.50" minH="100vh" py={{ base: 8, lg: 12 }}>
       <Box position="fixed" top={{ base: 4, lg: 6 }} right={{ base: 4, lg: 6 }} zIndex={20}>
-        <Tooltip label={copyTooltipLabel} hasArrow placement="left">
-          <IconButton
-            aria-label="共有プレビューURLをコピー"
-            icon={<CopyIcon />}
-            variant="ghost"
-            rounded="full"
-            bg="whiteAlpha.900"
-            boxShadow="md"
-            _hover={{ bg: "white" }}
-            onClick={() => void handleCopyPreviewUrl()}
-          />
-        </Tooltip>
+        <Stack
+          spacing={1}
+          bg="whiteAlpha.950"
+          borderWidth="1px"
+          borderColor="gray.100"
+          rounded="full"
+          p={1}
+          boxShadow="lg"
+        >
+          <Tooltip label="印刷" hasArrow placement="left">
+            <IconButton
+              aria-label="印刷"
+              icon={<PrintIcon />}
+              variant="ghost"
+              rounded="full"
+              onClick={handlePrint}
+            />
+          </Tooltip>
+
+          <Tooltip label="文字を小さくする" hasArrow placement="left">
+            <IconButton
+              aria-label="文字を小さくする"
+              icon={<TextSmallerIcon />}
+              variant="ghost"
+              rounded="full"
+              onClick={handleDecreaseFont}
+              isDisabled={fontScale <= 0.8}
+            />
+          </Tooltip>
+
+          <Tooltip label="文字を大きくする" hasArrow placement="left">
+            <IconButton
+              aria-label="文字を大きくする"
+              icon={<TextLargerIcon />}
+              variant="ghost"
+              rounded="full"
+              onClick={handleIncreaseFont}
+              isDisabled={fontScale >= 1.4}
+            />
+          </Tooltip>
+
+          <Tooltip label={copyTooltipLabel} hasArrow placement="left">
+            <IconButton
+              aria-label="共有プレビューURLをコピー"
+              icon={<CopyIcon />}
+              variant="ghost"
+              rounded="full"
+              onClick={() => void handleCopyPreviewUrl()}
+            />
+          </Tooltip>
+        </Stack>
       </Box>
 
       <Container maxW="4xl">
@@ -271,7 +359,7 @@ const PublicScriptPreviewPage = () => {
             </Text>
           </Stack>
 
-          <Stack spacing={5} align="stretch">
+          <Stack spacing={5} align="stretch" style={{ fontSize: `${fontScale}rem` }}>
             {blocks.map((block) => {
               const speaker = block.speakerId === MEMO_SPEAKER_ID ? MEMO_SPEAKER : speakerMap[block.speakerId];
               const color = speaker?.color ?? "#CBD5E0";
