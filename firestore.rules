@@ -33,6 +33,21 @@ service cloud.firestore {
       allow delete: if isProjectOwner(projectId);
     }
 
+    match /scriptPreviews/{token} {
+      allow get: if resource.data.enabled == true;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.projectId is string
+        && isProjectMember(request.resource.data.projectId);
+      allow update: if isSignedIn()
+        && resource.data.projectId is string
+        && request.resource.data.projectId == resource.data.projectId
+        && isProjectMember(resource.data.projectId);
+      allow delete: if isSignedIn()
+        && resource.data.projectId is string
+        && isProjectMember(resource.data.projectId);
+    }
+
     // project 本体は参加者のみ read、owner のみ write。
     match /projects/{projectId} {
       allow read: if isProjectMember(projectId)

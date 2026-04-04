@@ -39,7 +39,11 @@ import {
   updateProjectSectionItem
 } from "@/lib/firebase/items";
 import { fetchProjectByIdForUser } from "@/lib/firebase/projects";
-import { fetchProjectScriptById, updateProjectScriptReferences } from "@/lib/firebase/scripts";
+import {
+  fetchProjectScriptById,
+  refreshProjectScriptPreview,
+  updateProjectScriptReferences
+} from "@/lib/firebase/scripts";
 import { fetchProjectSpeakers } from "@/lib/firebase/speakers";
 import { uploadProjectScriptImage } from "@/lib/firebase/storage";
 import {
@@ -174,6 +178,19 @@ const ExportIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
     <path
       d="M12 4v10M8 10l4 4 4-4M5 18h14"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const PreviewIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M10 14 21 3M21 3h-6M21 3v6M3 12v7a2 2 0 0 0 2 2h7"
       stroke="currentColor"
       strokeWidth="1.8"
       strokeLinecap="round"
@@ -462,6 +479,8 @@ const ProjectScriptComposePage = () => {
   const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
   const [isSavingReference, setIsSavingReference] = useState(false);
   const [scrollTargetItemId, setScrollTargetItemId] = useState<string | null>(null);
+  const [isOpeningPreview, setIsOpeningPreview] = useState(false);
+  const [origin, setOrigin] = useState("");
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationScrollRef = useRef<HTMLDivElement | null>(null);
   const editingDialogueTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -547,6 +566,12 @@ const ProjectScriptComposePage = () => {
 
     window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSizeIndex));
   }, [fontSizeIndex]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !projectId || !scriptId) {
@@ -1128,6 +1153,36 @@ const ProjectScriptComposePage = () => {
     window.print();
   };
 
+  const handleOpenPreview = async () => {
+    if (!script || !origin || typeof window === "undefined") {
+      return;
+    }
+
+    setIsOpeningPreview(true);
+    setActionErrorMessage(null);
+
+    try {
+      const token = script.previewEnabled && script.previewToken
+        ? script.previewToken
+        : (await refreshProjectScriptPreview(projectId, script.id)).token;
+
+      if (!script.previewEnabled || script.previewToken !== token) {
+        setScript({
+          ...script,
+          previewEnabled: true,
+          previewToken: token,
+          previewUpdatedAt: new Date().toISOString()
+        });
+      }
+
+      window.open(`${origin}/preview/${token}`, "_blank", "noopener,noreferrer");
+    } catch {
+      setActionErrorMessage("共有プレビューを開けませんでした。");
+    } finally {
+      setIsOpeningPreview(false);
+    }
+  };
+
   const handleScrollConversationToBottom = () => {
     const container = conversationScrollRef.current;
     if (!container) {
@@ -1430,9 +1485,10 @@ const ProjectScriptComposePage = () => {
           bg="white"
           borderRightWidth={{ base: "0", lg: "1px" }}
           borderBottomWidth={{ base: "1px", lg: "0" }}
-          p={5}
+          p={{ base: 4, lg: 5 }}
           h={{ base: "auto", lg: "100vh" }}
           overflowY="auto"
+          order={{ base: 2, lg: 1 }}
           sx={{
             "@media print": {
               display: "none"
@@ -1728,8 +1784,9 @@ const ProjectScriptComposePage = () => {
           bg="gray.50"
           h={{ base: "auto", lg: "100vh" }}
           overflowY="auto"
-          p={{ base: 4, lg: 6 }}
-          pr={{ base: 16, lg: 20 }}
+          order={{ base: 1, lg: 2 }}
+          p={{ base: 3, lg: 6 }}
+          pr={{ base: 14, lg: 20 }}
           position="relative"
           sx={{
             "@media print": {
@@ -1790,6 +1847,16 @@ const ProjectScriptComposePage = () => {
               p={1}
               boxShadow="lg"
             >
+              <Tooltip label="共有プレビューを開く" hasArrow placement="left">
+                <IconButton
+                  aria-label="共有プレビューを開く"
+                  icon={<PreviewIcon />}
+                  variant="ghost"
+                  rounded="full"
+                  onClick={() => void handleOpenPreview()}
+                  isLoading={isOpeningPreview}
+                />
+              </Tooltip>
               <Tooltip label="会話ビューを印刷" hasArrow placement="left">
                 <IconButton
                   aria-label="会話ビューを印刷"
@@ -2011,10 +2078,10 @@ const ProjectScriptComposePage = () => {
                       <Stack direction="row" spacing={3} align="stretch" w="full">
                         {section ? (
                           <Box
-                            w="2px"
-                            minW="2px"
+                            w={{ base: "6px", lg: "8px" }}
+                            minW={{ base: "6px", lg: "8px" }}
                             rounded="full"
-                            bg="gray.300"
+                            bg="gray.500"
                             boxShadow={isDropTarget ? "outline" : "none"}
                           />
                         ) : (
@@ -2038,7 +2105,7 @@ const ProjectScriptComposePage = () => {
                           borderColor={isSelectedBlock ? "teal.200" : "transparent"}
                         >
                           {section ? (
-                            <Box py={2} borderBottomWidth="1px" borderColor="gray.200">
+                            <Box py={{ base: 2.5, lg: 3 }} borderBottomWidth="1px" borderColor="gray.200">
                               {isSectionEditing ? (
                                 <Stack spacing={3}>
                                   <Textarea
@@ -2068,11 +2135,11 @@ const ProjectScriptComposePage = () => {
                                 </Stack>
                               ) : (
                                 <Text
-                                  fontSize="sm"
+                                  fontSize={{ base: "lg", lg: "xl" }}
                                   fontWeight="bold"
-                                  letterSpacing="0.08em"
-                                  color="gray.700"
-                                  textTransform="uppercase"
+                                  letterSpacing="0.04em"
+                                  color="gray.800"
+                                  lineHeight="shorter"
                                 >
                                   {section.title}
                                 </Text>
@@ -2262,7 +2329,7 @@ const ProjectScriptComposePage = () => {
               <Stack spacing={3} align="flex-end">
                 {isReferencesOpen ? (
                   <Box
-                    w={{ base: "min(100vw - 2rem, 320px)", lg: "320px" }}
+                    w={{ base: "calc(100vw - 1rem)", lg: "320px" }}
                     bg="white"
                     borderWidth="1px"
                     rounded="xl"
@@ -2390,9 +2457,17 @@ const ProjectScriptComposePage = () => {
           <Box
             bg="white"
             borderLeftWidth={{ base: "0", lg: "1px" }}
-            h={{ base: "auto", lg: "100vh" }}
+            borderTopWidth={{ base: "1px", lg: "0" }}
+            h={{ base: "100vh", lg: "100vh" }}
             overflowY="auto"
-            p={5}
+            p={{ base: 4, lg: 5 }}
+            order={{ base: 3, lg: 3 }}
+            position={{ base: "fixed", lg: "relative" }}
+            top={{ base: 0, lg: "auto" }}
+            right={{ base: 0, lg: "auto" }}
+            bottom={{ base: 0, lg: "auto" }}
+            left={{ base: 0, lg: "auto" }}
+            zIndex={{ base: 30, lg: "auto" }}
             sx={{
               "@media print": {
                 display: "none"

@@ -27,7 +27,13 @@ import { SaveStatus, SaveStatusNotice } from "@/components/scripts/save-status-n
 import { SpeakerManager } from "@/components/scripts/speaker-manager";
 import { useAuth } from "@/components/auth/auth-provider";
 import { fetchProjectByIdForUser } from "@/lib/firebase/projects";
-import { fetchProjectScriptById, updateProjectScriptStatus, updateProjectScriptTitle } from "@/lib/firebase/scripts";
+import {
+  disableProjectScriptPreview,
+  fetchProjectScriptById,
+  refreshProjectScriptPreview,
+  updateProjectScriptStatus,
+  updateProjectScriptTitle
+} from "@/lib/firebase/scripts";
 import { ScriptDetail, ScriptStatus } from "@/types/script";
 
 const CopyIcon = () => (
@@ -82,6 +88,32 @@ const SaveIcon = () => (
   </Icon>
 );
 
+const PreviewIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M10 14 21 3M21 3h-6M21 3v6M3 12v7a2 2 0 0 0 2 2h7"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const DisableIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M6 6l12 12M9 9h8v8M6 14V6h8"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const formatDateTime = (value: string): string => {
   return new Intl.DateTimeFormat("ja-JP", {
     year: "numeric",
@@ -113,6 +145,11 @@ const ProjectScriptSettingsPage = () => {
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [statusSaveStatus, setStatusSaveStatus] = useState<SaveStatus>("idle");
   const [statusSaveMessage, setStatusSaveMessage] = useState<string | null>(null);
+  const [isRefreshingPreview, setIsRefreshingPreview] = useState(false);
+  const [isDisablingPreview, setIsDisablingPreview] = useState(false);
+  const [previewSaveStatus, setPreviewSaveStatus] = useState<SaveStatus>("idle");
+  const [previewSaveMessage, setPreviewSaveMessage] = useState<string | null>(null);
+  const [origin, setOrigin] = useState("");
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -157,6 +194,12 @@ const ProjectScriptSettingsPage = () => {
   useEffect(() => {
     void loadScript();
   }, [loadScript]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   const handleSaveTitle = async () => {
     const trimmedTitle = titleInput.trim();
@@ -232,6 +275,86 @@ const ProjectScriptSettingsPage = () => {
     }
 
     await navigator.clipboard.writeText(copyText);
+  };
+
+  const previewUrl = script?.previewEnabled && script.previewToken && origin
+    ? `${origin}/preview/${script.previewToken}`
+    : "";
+
+  const handleRefreshPreview = async (copyAfterRefresh: boolean) => {
+    if (!script) {
+      return;
+    }
+
+    setIsRefreshingPreview(true);
+    setPreviewSaveStatus("saving");
+    setPreviewSaveMessage("共有プレビューを更新しています...");
+    setErrorMessage(null);
+
+    try {
+      const { token } = await refreshProjectScriptPreview(projectId, script.id);
+      const nextPreviewUrl = origin ? `${origin}/preview/${token}` : "";
+
+      if (copyAfterRefresh && typeof navigator !== "undefined" && nextPreviewUrl) {
+        await navigator.clipboard.writeText(nextPreviewUrl);
+      }
+
+      setScript({
+        ...script,
+        previewEnabled: true,
+        previewToken: token,
+        previewUpdatedAt: new Date().toISOString()
+      });
+      setPreviewSaveStatus("success");
+      setPreviewSaveMessage(copyAfterRefresh ? "共有プレビューリンクを更新してコピーしました。" : "共有プレビューを更新しました。");
+    } catch {
+      setPreviewSaveStatus("error");
+      setPreviewSaveMessage("共有プレビューの更新に失敗しました。");
+    } finally {
+      setIsRefreshingPreview(false);
+    }
+  };
+
+  const handleCopyPreviewLink = async () => {
+    if (!previewUrl || typeof navigator === "undefined") {
+      return;
+    }
+
+    await navigator.clipboard.writeText(previewUrl);
+    setPreviewSaveStatus("success");
+    setPreviewSaveMessage("共有プレビューリンクをコピーしました。");
+  };
+
+  const handleDisablePreview = async () => {
+    if (!script?.previewToken) {
+      return;
+    }
+
+    if (!window.confirm("共有プレビューを無効化しますか？")) {
+      return;
+    }
+
+    setIsDisablingPreview(true);
+    setPreviewSaveStatus("saving");
+    setPreviewSaveMessage("共有プレビューを無効化しています...");
+    setErrorMessage(null);
+
+    try {
+      await disableProjectScriptPreview(projectId, script.id, script.previewToken);
+      setScript({
+        ...script,
+        previewEnabled: false,
+        previewToken: null,
+        previewUpdatedAt: null
+      });
+      setPreviewSaveStatus("success");
+      setPreviewSaveMessage("共有プレビューを無効化しました。");
+    } catch {
+      setPreviewSaveStatus("error");
+      setPreviewSaveMessage("共有プレビューの無効化に失敗しました。");
+    } finally {
+      setIsDisablingPreview(false);
+    }
   };
 
   if (isLoading) {
@@ -340,6 +463,7 @@ const ProjectScriptSettingsPage = () => {
                   <Heading size="md">台本基本情報</Heading>
                   <SaveStatusNotice status={titleSaveStatus} message={titleSaveMessage} />
                   <SaveStatusNotice status={statusSaveStatus} message={statusSaveMessage} />
+                  <SaveStatusNotice status={previewSaveStatus} message={previewSaveMessage} />
                   <FormControl isRequired>
                     <FormLabel>タイトル</FormLabel>
                     <Stack direction="row" spacing={3} align="center">
@@ -382,6 +506,58 @@ const ProjectScriptSettingsPage = () => {
                           flexShrink={0}
                         />
                       </Tooltip>
+                    </Stack>
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>共有プレビュー</FormLabel>
+                    <Stack spacing={3}>
+                      <Stack direction="row" spacing={3} align="center">
+                        <Input
+                          value={previewUrl}
+                          placeholder="共有プレビューリンクはまだ発行されていません"
+                          readOnly
+                        />
+                        <Tooltip label="共有プレビューを更新してコピー" hasArrow>
+                          <IconButton
+                            aria-label="共有プレビューを更新してコピー"
+                            icon={<PreviewIcon />}
+                            colorScheme="teal"
+                            variant="outline"
+                            rounded="full"
+                            onClick={() => void handleRefreshPreview(true)}
+                            isLoading={isRefreshingPreview}
+                            isDisabled={isDisablingPreview}
+                            flexShrink={0}
+                          />
+                        </Tooltip>
+                        <Tooltip label="共有プレビューリンクをコピー" hasArrow>
+                          <IconButton
+                            aria-label="共有プレビューリンクをコピー"
+                            icon={<CopyIcon />}
+                            variant="outline"
+                            rounded="full"
+                            onClick={() => void handleCopyPreviewLink()}
+                            isDisabled={!previewUrl || isRefreshingPreview || isDisablingPreview}
+                            flexShrink={0}
+                          />
+                        </Tooltip>
+                        <Tooltip label="共有プレビューを無効化" hasArrow>
+                          <IconButton
+                            aria-label="共有プレビューを無効化"
+                            icon={<DisableIcon />}
+                            colorScheme="red"
+                            variant="outline"
+                            rounded="full"
+                            onClick={() => void handleDisablePreview()}
+                            isLoading={isDisablingPreview}
+                            isDisabled={!script.previewEnabled || !script.previewToken || isRefreshingPreview}
+                            flexShrink={0}
+                          />
+                        </Tooltip>
+                      </Stack>
+                      <Text color="gray.500" fontSize="sm">
+                        閲覧専用リンクです。台本内容を更新したあとに共有する場合は、更新してコピーを押してください。
+                      </Text>
                     </Stack>
                   </FormControl>
                 </Stack>

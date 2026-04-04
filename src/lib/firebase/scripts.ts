@@ -1,8 +1,10 @@
 import {
   addDoc,
   doc,
+  deleteDoc,
   getDoc,
   serverTimestamp,
+  setDoc,
   Timestamp,
   collection,
   getDocs,
@@ -13,7 +15,17 @@ import {
 } from "firebase/firestore";
 
 import { getFirebaseFirestore } from "@/lib/firebase/firestore";
-import { ScriptDetail, ScriptReference, ScriptStatus, ScriptSummary } from "@/types/script";
+import { fetchProjectScriptItems } from "@/lib/firebase/items";
+import { fetchProjectSpeakers } from "@/lib/firebase/speakers";
+import {
+  PublicScriptPreview,
+  ScriptDetail,
+  ScriptItem,
+  ScriptReference,
+  ScriptSpeaker,
+  ScriptStatus,
+  ScriptSummary
+} from "@/types/script";
 
 type ScriptDocument = {
   ownerUid?: unknown;
@@ -21,8 +33,23 @@ type ScriptDocument = {
   title?: unknown;
   status?: unknown;
   references?: unknown;
+  previewEnabled?: unknown;
+  previewToken?: unknown;
+  previewUpdatedAt?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
+};
+
+type PublicPreviewDocument = {
+  enabled?: unknown;
+  token?: unknown;
+  projectId?: unknown;
+  scriptId?: unknown;
+  title?: unknown;
+  updatedAt?: unknown;
+  previewUpdatedAt?: unknown;
+  speakers?: unknown;
+  items?: unknown;
 };
 
 type CreateScriptInput = {
@@ -108,6 +135,113 @@ const toScriptReferences = (value: unknown): ScriptReference[] => {
 
     return [{ id, text, url }];
   });
+};
+
+const toPreviewEnabled = (value: unknown): boolean => value === true;
+
+const toPreviewToken = (value: unknown): string | null => {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+};
+
+const toScriptSpeakers = (value: unknown): ScriptSpeaker[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+
+    const candidate = entry as Record<string, unknown>;
+    const id = typeof candidate.id === "string" ? candidate.id : "";
+
+    if (!id) {
+      return [];
+    }
+
+    return [
+      {
+        id,
+        name: typeof candidate.name === "string" && candidate.name.trim().length > 0 ? candidate.name : "名前未設定",
+        color: typeof candidate.color === "string" && candidate.color.trim().length > 0 ? candidate.color : "#1F6FEB",
+        updatedAt: toUpdatedAtIso(candidate.updatedAt)
+      }
+    ];
+  });
+};
+
+const toScriptItems = (value: unknown): ScriptItem[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const items = value.flatMap<ScriptItem>((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+
+      const candidate = entry as Record<string, unknown>;
+      const id = typeof candidate.id === "string" ? candidate.id : "";
+      const type = candidate.type;
+
+      if (!id) {
+        return [];
+      }
+
+      const base = {
+        id,
+        order: normalizeSortOrder(candidate.order, Number.MAX_SAFE_INTEGER),
+        updatedAt: toUpdatedAtIso(candidate.updatedAt)
+      };
+
+      if (type === "section") {
+        return [
+          {
+            ...base,
+            type: "section" as const,
+            speakerId: "",
+            title: typeof candidate.title === "string" ? candidate.title : ""
+          }
+        ];
+      }
+
+      if (type === "media") {
+        return [
+          {
+            ...base,
+            type: "media" as const,
+            speakerId: typeof candidate.speakerId === "string" ? candidate.speakerId : "",
+            pairId: typeof candidate.pairId === "string" ? candidate.pairId : undefined,
+            mediaType: candidate.mediaType === "video" ? "video" : "image",
+            label: typeof candidate.label === "string" ? candidate.label : "",
+            url: typeof candidate.url === "string" ? candidate.url : "",
+            note: typeof candidate.note === "string" ? candidate.note : ""
+          }
+        ];
+      }
+
+      return [
+        {
+          ...base,
+          type: "dialogue" as const,
+          speakerId: typeof candidate.speakerId === "string" ? candidate.speakerId : "",
+          pairId: typeof candidate.pairId === "string" ? candidate.pairId : undefined,
+          content: typeof candidate.content === "string" ? candidate.content : ""
+        }
+      ];
+    });
+
+  return items.sort((a, b) => a.order - b.order);
+};
+
+const buildPublicPreviewLinkToken = (): string => {
+  return crypto.randomUUID();
+};
+
+const getPublicPreviewDocRef = (token: string) => {
+  const firestore = getFirebaseFirestore();
+  return doc(firestore, "scriptPreviews", token);
 };
 
 export const fetchScriptsByOwnerUid = async (ownerUid: string): Promise<ScriptSummary[]> => {
@@ -227,6 +361,10 @@ export const fetchScriptByIdForOwner = async (
     title: toScriptTitle(data.title),
     status: toScriptStatus(data.status),
     references: toScriptReferences(data.references),
+    previewEnabled: toPreviewEnabled(data.previewEnabled),
+    previewToken: toPreviewToken(data.previewToken),
+    previewUpdatedAt:
+      data.previewUpdatedAt === undefined ? null : toUpdatedAtIso(data.previewUpdatedAt),
     createdAt: toUpdatedAtIso(data.createdAt),
     updatedAt: toUpdatedAtIso(data.updatedAt)
   };
@@ -251,8 +389,144 @@ export const fetchProjectScriptById = async (
     title: toScriptTitle(data.title),
     status: toScriptStatus(data.status),
     references: toScriptReferences(data.references),
+    previewEnabled: toPreviewEnabled(data.previewEnabled),
+    previewToken: toPreviewToken(data.previewToken),
+    previewUpdatedAt:
+      data.previewUpdatedAt === undefined ? null : toUpdatedAtIso(data.previewUpdatedAt),
     createdAt: toUpdatedAtIso(data.createdAt),
     updatedAt: toUpdatedAtIso(data.updatedAt)
+  };
+};
+
+export const refreshProjectScriptPreview = async (
+  projectId: string,
+  scriptId: string
+): Promise<{ token: string }> => {
+  const firestore = getFirebaseFirestore();
+  const scriptRef = doc(firestore, "projects", projectId, "scripts", scriptId);
+  const scriptSnapshot = await getDoc(scriptRef);
+
+  if (!scriptSnapshot.exists()) {
+    throw new Error("台本が見つかりません。");
+  }
+
+  const data = scriptSnapshot.data() as ScriptDocument;
+  const token = toPreviewToken(data.previewToken) ?? buildPublicPreviewLinkToken();
+  const [speakers, items] = await Promise.all([
+    fetchProjectSpeakers(projectId, scriptId),
+    fetchProjectScriptItems(projectId, scriptId)
+  ]);
+
+  await updateDoc(scriptRef, {
+    previewEnabled: true,
+    previewToken: token,
+    previewUpdatedAt: serverTimestamp()
+  });
+
+  await setDoc(getPublicPreviewDocRef(token), {
+    enabled: true,
+    token,
+    projectId,
+    scriptId,
+    title: toScriptTitle(data.title),
+    updatedAt: toUpdatedAtIso(data.updatedAt),
+    previewUpdatedAt: serverTimestamp(),
+    speakers: speakers.map((speaker) => ({
+      id: speaker.id,
+      name: speaker.name,
+      color: speaker.color,
+      updatedAt: speaker.updatedAt
+    })),
+    items: items.map((item) => {
+      if (item.type === "section") {
+        return {
+          id: item.id,
+          type: item.type,
+          order: item.order,
+          speakerId: "",
+          title: item.title,
+          updatedAt: item.updatedAt
+        };
+      }
+
+      if (item.type === "media") {
+        return {
+          id: item.id,
+          type: item.type,
+          order: item.order,
+          speakerId: item.speakerId,
+          pairId: item.pairId ?? null,
+          mediaType: item.mediaType,
+          label: item.label,
+          url: item.url,
+          note: item.note,
+          updatedAt: item.updatedAt
+        };
+      }
+
+      return {
+        id: item.id,
+        type: item.type,
+        order: item.order,
+        speakerId: item.speakerId,
+        pairId: item.pairId ?? null,
+        content: item.content,
+        updatedAt: item.updatedAt
+      };
+    })
+  });
+
+  return { token };
+};
+
+export const disableProjectScriptPreview = async (
+  projectId: string,
+  scriptId: string,
+  previewToken?: string | null
+): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const scriptRef = doc(firestore, "projects", projectId, "scripts", scriptId);
+
+  await updateDoc(scriptRef, {
+    previewEnabled: false,
+    previewToken: null,
+    previewUpdatedAt: null
+  });
+
+  if (previewToken) {
+    await deleteDoc(getPublicPreviewDocRef(previewToken));
+  }
+};
+
+export const fetchPublicScriptPreview = async (token: string): Promise<PublicScriptPreview | null> => {
+  const snapshot = await getDoc(getPublicPreviewDocRef(token));
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  const data = snapshot.data() as PublicPreviewDocument;
+  if (data.enabled !== true) {
+    return null;
+  }
+
+  const projectId = typeof data.projectId === "string" ? data.projectId : "";
+  const scriptId = typeof data.scriptId === "string" ? data.scriptId : "";
+  const previewToken = typeof data.token === "string" && data.token.trim().length > 0 ? data.token : token;
+
+  if (!projectId || !scriptId) {
+    return null;
+  }
+
+  return {
+    token: previewToken,
+    projectId,
+    scriptId,
+    title: toScriptTitle(data.title),
+    updatedAt: toUpdatedAtIso(data.updatedAt),
+    previewUpdatedAt: toUpdatedAtIso(data.previewUpdatedAt),
+    speakers: toScriptSpeakers(data.speakers),
+    items: toScriptItems(data.items)
   };
 };
 
