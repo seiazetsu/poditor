@@ -316,7 +316,7 @@ export const SpeakerManager = ({ scriptId, projectId }: SpeakerManagerProps) => 
       <Box borderWidth="1px" rounded="md" p={4}>
         <Stack spacing={3}>
           <Heading size="sm">話者を追加</Heading>
-          <Flex direction={{ base: "column", xl: "row" }} gap={4} align={{ base: "stretch", xl: "end" }}>
+          <Flex direction={{ base: "column", lg: "row" }} gap={4} align={{ base: "stretch", lg: "end" }}>
             <FormControl isRequired flex="1 1 0">
               <FormLabel>話者名</FormLabel>
               <Input
@@ -344,7 +344,7 @@ export const SpeakerManager = ({ scriptId, projectId }: SpeakerManagerProps) => 
               onClick={handleAddSpeaker}
               isLoading={isAdding}
               isDisabled={!newName.trim() || !hasAvailableNewColor}
-              alignSelf={{ base: "stretch", xl: "end" }}
+              alignSelf={{ base: "stretch", lg: "end" }}
               rounded="full"
             />
           </Flex>
@@ -395,7 +395,7 @@ export const SpeakerManager = ({ scriptId, projectId }: SpeakerManagerProps) => 
                   </Text>
                 </Flex>
 
-                <Flex direction={{ base: "column", xl: "row" }} gap={4} align={{ base: "stretch", xl: "end" }}>
+                <Flex direction={{ base: "column", lg: "row" }} gap={4} align={{ base: "stretch", lg: "end" }}>
                   <FormControl isRequired flex="1 1 0">
                     <FormLabel>話者名</FormLabel>
                     <Input
@@ -433,7 +433,7 @@ export const SpeakerManager = ({ scriptId, projectId }: SpeakerManagerProps) => 
                     }}
                     isLoading={isSaving}
                     isDisabled={!draft.name.trim() || isDeleting}
-                    alignSelf={{ base: "stretch", xl: "end" }}
+                    alignSelf={{ base: "stretch", lg: "end" }}
                     rounded="full"
                   />
                   <IconButton
@@ -446,7 +446,7 @@ export const SpeakerManager = ({ scriptId, projectId }: SpeakerManagerProps) => 
                     }}
                     isLoading={isDeleting}
                     isDisabled={isSaving}
-                    alignSelf={{ base: "stretch", xl: "end" }}
+                    alignSelf={{ base: "stretch", lg: "end" }}
                     rounded="full"
                   />
                 </Flex>

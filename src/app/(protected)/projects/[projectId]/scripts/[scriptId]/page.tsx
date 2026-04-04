@@ -456,9 +456,9 @@ const ProjectScriptSettingsPage = () => {
             </Tooltip>
           </Stack>
 
-          <Grid templateColumns={{ base: "1fr", xl: "minmax(0, 1.15fr) minmax(360px, 0.85fr)" }} gap={6} alignItems="start">
+          <Grid templateColumns={{ base: "1fr", xl: "minmax(0, 1.15fr) minmax(360px, 0.85fr)" }} gap={{ base: 4, lg: 6 }} alignItems="start">
             <Stack spacing={6}>
-              <Box bg="white" p={6} rounded="md" borderWidth="1px">
+              <Box bg="white" p={{ base: 4, lg: 6 }} rounded="md" borderWidth="1px">
                 <Stack spacing={4}>
                   <Heading size="md">台本基本情報</Heading>
                   <SaveStatusNotice status={titleSaveStatus} message={titleSaveMessage} />
@@ -466,7 +466,7 @@ const ProjectScriptSettingsPage = () => {
                   <SaveStatusNotice status={previewSaveStatus} message={previewSaveMessage} />
                   <FormControl isRequired>
                     <FormLabel>タイトル</FormLabel>
-                    <Stack direction="row" spacing={3} align="center">
+                    <Stack direction={{ base: "column", sm: "row" }} spacing={3} align={{ base: "stretch", sm: "center" }}>
                       <Input value={titleInput} onChange={(event) => setTitleInput(event.target.value)} maxLength={120} />
                       <Tooltip label="タイトルを保存" hasArrow>
                         <IconButton
@@ -479,13 +479,14 @@ const ProjectScriptSettingsPage = () => {
                           isDisabled={!titleInput.trim() || titleInput.trim() === script.title}
                           rounded="full"
                           flexShrink={0}
+                          alignSelf={{ base: "flex-end", sm: "auto" }}
                         />
                       </Tooltip>
                     </Stack>
                   </FormControl>
                   <FormControl>
                     <FormLabel>ステータス</FormLabel>
-                    <Stack direction="row" spacing={3} align="center">
+                    <Stack direction={{ base: "column", sm: "row" }} spacing={3} align={{ base: "stretch", sm: "center" }}>
                       <Select value={statusInput} onChange={(event) => setStatusInput(event.target.value as ScriptStatus)}>
                         {SCRIPT_STATUS_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -504,6 +505,7 @@ const ProjectScriptSettingsPage = () => {
                           isDisabled={statusInput === script.status}
                           rounded="full"
                           flexShrink={0}
+                          alignSelf={{ base: "flex-end", sm: "auto" }}
                         />
                       </Tooltip>
                     </Stack>
@@ -511,12 +513,13 @@ const ProjectScriptSettingsPage = () => {
                   <FormControl>
                     <FormLabel>共有プレビュー</FormLabel>
                     <Stack spacing={3}>
-                      <Stack direction="row" spacing={3} align="center">
-                        <Input
-                          value={previewUrl}
-                          placeholder="共有プレビューリンクはまだ発行されていません"
-                          readOnly
-                        />
+                      <Input
+                        value={previewUrl}
+                        placeholder="共有プレビューリンクはまだ発行されていません"
+                        readOnly
+                        fontSize={{ base: "sm", md: "md" }}
+                      />
+                      <Stack direction="row" spacing={3} align="center" flexWrap="wrap">
                         <Tooltip label="共有プレビューを更新してコピー" hasArrow>
                           <IconButton
                             aria-label="共有プレビューを更新してコピー"
@@ -563,14 +566,14 @@ const ProjectScriptSettingsPage = () => {
                 </Stack>
               </Box>
 
-              <Box bg="white" p={6} rounded="md" borderWidth="1px">
+              <Box bg="white" p={{ base: 4, lg: 6 }} rounded="md" borderWidth="1px" overflowX="hidden">
                 <SpeakerManager projectId={projectId} scriptId={script.id} />
               </Box>
             </Stack>
 
-            <Box bg="white" p={6} rounded="md" borderWidth="1px">
+            <Box bg="white" p={{ base: 4, lg: 6 }} rounded="md" borderWidth="1px">
               <Stack spacing={4}>
-                <Stack direction="row" justify="space-between" align="center">
+                <Stack direction={{ base: "column", sm: "row" }} justify="space-between" align={{ base: "start", sm: "center" }}>
                   <Heading size="md">参考文献</Heading>
                   {script.references.length > 0 ? (
                     <Tooltip label="参考文献をすべてコピー" hasArrow>

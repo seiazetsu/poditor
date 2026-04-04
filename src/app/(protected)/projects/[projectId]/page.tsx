@@ -554,11 +554,11 @@ const ProjectDetailPage = () => {
                   py={2}
                 >
                   <Stack
-                    direction="row"
-                    align="center"
+                    spacing={{ base: 2, md: 0 }}
                     justify="space-between"
-                    spacing={3}
-                    minH="36px"
+                    align={{ base: "stretch", md: "center" }}
+                    direction={{ base: "column", md: "row" }}
+                    minH={{ base: "auto", md: "36px" }}
                   >
                     {editingScriptId === script.id ? (
                       <Stack direction="row" spacing={2} align="center" flex="1 1 auto" minW="0">
@@ -612,85 +612,100 @@ const ProjectDetailPage = () => {
                         {script.title}
                       </Text>
                     )}
-                    <Badge
-                      as="button"
-                      type="button"
-                      colorScheme={SCRIPT_STATUS_COLOR_SCHEMES[script.status]}
-                      borderRadius="full"
-                      px={2.5}
-                      py={1}
+                    <Stack
+                      direction={{ base: "column", sm: "row" }}
+                      spacing={{ base: 2, sm: 3 }}
+                      align={{ base: "start", sm: "center" }}
+                      justify="space-between"
                       flexShrink={0}
-                      cursor={isSavingScriptStatusId === script.id || editingScriptId === script.id ? "default" : "pointer"}
-                      opacity={isSavingScriptStatusId === script.id ? 0.6 : 1}
-                      transition="opacity 0.2s ease"
-                      onClick={() => {
-                        if (isSavingScriptStatusId === script.id || editingScriptId === script.id) {
-                          return;
-                        }
-
-                        void handleCycleScriptStatus(script);
-                      }}
                     >
-                      {SCRIPT_STATUS_LABELS[script.status]}
-                    </Badge>
-                    <Text color="gray.600" fontSize="sm" whiteSpace="nowrap" flexShrink={0}>
-                      更新日時: {formatUpdatedAt(script.updatedAt)}
-                    </Text>
-                    <Stack direction="row" spacing={1} flexShrink={0}>
-                      <Tooltip label="基本設定" hasArrow>
-                        <IconButton
-                          as={NextLink}
-                          href={`/projects/${projectId}/scripts/${script.id}`}
-                          aria-label="基本設定"
-                          icon={<SettingsIcon />}
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="teal"
-                          rounded="full"
-                        />
-                      </Tooltip>
-                      <Tooltip label="会話作成" hasArrow>
-                        <IconButton
-                          as={NextLink}
-                          href={`/projects/${projectId}/scripts/${script.id}/compose`}
-                          aria-label="会話作成"
-                          icon={<ComposeIcon />}
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="blue"
-                          rounded="full"
-                        />
-                      </Tooltip>
-                      <Tooltip label="複製" hasArrow>
-                        <IconButton
-                          aria-label="複製"
-                          icon={<DuplicateIcon />}
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="purple"
+                      <Stack direction="row" spacing={2} align="center" flexWrap="wrap">
+                        <Badge
+                          as="button"
+                          type="button"
+                          colorScheme={SCRIPT_STATUS_COLOR_SCHEMES[script.status]}
+                          borderRadius="full"
+                          px={2.5}
+                          py={1}
+                          flexShrink={0}
+                          cursor={isSavingScriptStatusId === script.id || editingScriptId === script.id ? "default" : "pointer"}
+                          opacity={isSavingScriptStatusId === script.id ? 0.6 : 1}
+                          transition="opacity 0.2s ease"
                           onClick={() => {
-                            void handleDuplicateScript(script.id);
+                            if (isSavingScriptStatusId === script.id || editingScriptId === script.id) {
+                              return;
+                            }
+
+                            void handleCycleScriptStatus(script);
                           }}
-                          isLoading={isDuplicatingScriptId === script.id}
-                          isDisabled={isDeletingScriptId === script.id || editingScriptId === script.id}
-                          rounded="full"
-                        />
-                      </Tooltip>
-                      <Tooltip label="削除" hasArrow>
-                        <IconButton
-                          aria-label="削除"
-                          icon={<DeleteIcon />}
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="red"
-                          onClick={() => {
-                            void handleDeleteScript(script.id);
-                          }}
-                          isLoading={isDeletingScriptId === script.id}
-                          isDisabled={isDuplicatingScriptId === script.id || editingScriptId === script.id}
-                          rounded="full"
-                        />
-                      </Tooltip>
+                        >
+                          {SCRIPT_STATUS_LABELS[script.status]}
+                        </Badge>
+                        <Text color="gray.600" fontSize="sm" whiteSpace={{ base: "normal", sm: "nowrap" }} flexShrink={0}>
+                          更新日時: {formatUpdatedAt(script.updatedAt)}
+                        </Text>
+                      </Stack>
+                      <Stack direction="row" spacing={1} flexShrink={0}>
+                        <Tooltip label="基本設定" hasArrow>
+                          <IconButton
+                            as={NextLink}
+                            href={`/projects/${projectId}/scripts/${script.id}`}
+                            aria-label="基本設定"
+                            icon={<SettingsIcon />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="teal"
+                            rounded="full"
+                          />
+                        </Tooltip>
+                        <Tooltip label="会話作成" hasArrow>
+                          <IconButton
+                            as={NextLink}
+                            href={`/projects/${projectId}/scripts/${script.id}/compose`}
+                            aria-label="会話作成"
+                            icon={<ComposeIcon />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="blue"
+                            rounded="full"
+                          />
+                        </Tooltip>
+                        <Tooltip label="複製" hasArrow>
+                          <IconButton
+                            aria-label="複製"
+                            icon={<DuplicateIcon />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="purple"
+                            onClick={() => {
+                              void handleDuplicateScript(script.id);
+                            }}
+                            isLoading={isDuplicatingScriptId === script.id}
+                            isDisabled={isDeletingScriptId === script.id || editingScriptId === script.id}
+                            rounded="full"
+                          />
+                        </Tooltip>
+                        <Tooltip label="削除" hasArrow>
+                          <IconButton
+                            aria-label="削除"
+                            icon={<DeleteIcon />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="red"
+                            onClick={() => {
+                              void handleDeleteScript(script.id);
+                            }}
+                            isLoading={isDeletingScriptId === script.id}
+                            isDisabled={
+                              isDuplicatingScriptId === script.id ||
+                              editingScriptId === script.id ||
+                              project?.ownerUid !== user?.uid
+                            }
+                            rounded="full"
+                            display={project?.ownerUid === user?.uid ? "inline-flex" : "none"}
+                          />
+                        </Tooltip>
+                      </Stack>
                     </Stack>
                   </Stack>
                 </Box>

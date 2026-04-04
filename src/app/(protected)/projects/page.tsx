@@ -190,14 +190,16 @@ const ProjectsPage = () => {
                     <Button as={NextLink} href={`/projects/${project.id}`} colorScheme="teal" variant="outline">
                       開く
                     </Button>
-                    <Button
-                      colorScheme="red"
-                      variant="ghost"
-                      onClick={() => void handleDeleteProject(project)}
-                      isLoading={deletingProjectId === project.id}
-                    >
-                      削除
-                    </Button>
+                    {project.ownerUid === user?.uid ? (
+                      <Button
+                        colorScheme="red"
+                        variant="ghost"
+                        onClick={() => void handleDeleteProject(project)}
+                        isLoading={deletingProjectId === project.id}
+                      >
+                        削除
+                      </Button>
+                    ) : null}
                   </Stack>
                 </Stack>
               </Box>
