@@ -39,6 +39,7 @@ import {
   updateProjectSectionItem
 } from "@/lib/firebase/items";
 import { fetchProjectByIdForUser } from "@/lib/firebase/projects";
+import { canEditProjectContent } from "@/lib/permissions/project";
 import {
   fetchProjectScriptById,
   refreshProjectScriptPreview,
@@ -55,6 +56,7 @@ import {
   ScriptSectionItem,
   ScriptSpeaker
 } from "@/types/script";
+import { ProjectMemberRole } from "@/types/project";
 
 const END_INSERTION = "end";
 const FONT_SIZE_STORAGE_KEY = "poditor-compose-font-size-index";
@@ -495,6 +497,7 @@ const ProjectScriptComposePage = () => {
   const [scrollTargetItemId, setScrollTargetItemId] = useState<string | null>(null);
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
   const [origin, setOrigin] = useState("");
+  const [currentUserRole, setCurrentUserRole] = useState<ProjectMemberRole>("member");
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationScrollRef = useRef<HTMLDivElement | null>(null);
   const editingDialogueTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -505,6 +508,7 @@ const ProjectScriptComposePage = () => {
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
+  const canEditScript = canEditProjectContent(currentUserRole);
 
   const loadScript = useCallback(async () => {
     if (!user || !projectId || !scriptId) {
@@ -523,6 +527,7 @@ const ProjectScriptComposePage = () => {
         setIsSafeNotFound(true);
         return;
       }
+      setCurrentUserRole(project.currentUserRole);
 
       const scriptData = await fetchProjectScriptById(projectId, scriptId);
       if (!scriptData) {
@@ -650,6 +655,18 @@ const ProjectScriptComposePage = () => {
   }, [isMemoOpen, isMobileComposerOpen, isReferencesOpen]);
 
   useEffect(() => {
+    if (canEditScript) {
+      return;
+    }
+
+    setIsMobileComposerOpen(false);
+    setIsSelectionMode(false);
+    setSelectedBlockKeys([]);
+    setIsReferencesOpen(false);
+    setIsMemoOpen(false);
+  }, [canEditScript]);
+
+  useEffect(() => {
     const textarea = editingDialogueTextareaRef.current;
     if (!textarea) {
       return;
@@ -689,6 +706,10 @@ const ProjectScriptComposePage = () => {
   }, [items, scrollTargetItemId]);
 
   const handleAddDialogue = async () => {
+    if (!canEditScript) {
+      return;
+    }
+
     const trimmedContent = contentInput.trim();
     const trimmedMediaUrl = normalizeUrl(mediaUrlInput);
     const attachedMediaUrl = mediaTypeInput === "image" ? pendingImageUrl ?? trimmedMediaUrl : trimmedMediaUrl;
@@ -753,6 +774,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleAddSection = async () => {
+    if (!canEditScript) {
+      return;
+    }
+
     const trimmedTitle = sectionTitleInput.trim();
     if (!trimmedTitle) {
       setActionErrorMessage("セクション名を入力してください。");
@@ -790,6 +815,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleImageUpload = async (file: File) => {
+    if (!canEditScript) {
+      return;
+    }
+
     setIsUploadingImage(true);
     setActionErrorMessage(null);
 
@@ -835,6 +864,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleContentInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!canEditScript) {
+      return;
+    }
+
     if (event.key !== "Enter" || !event.shiftKey) {
       return;
     }
@@ -855,6 +888,12 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleDropItem = async (targetBlockId: string) => {
+    if (!canEditScript) {
+      setDraggedItemId(null);
+      setDropTargetId(null);
+      return;
+    }
+
     if (isSelectionMode) {
       setDraggedItemId(null);
       setDropTargetId(null);
@@ -906,6 +945,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleStartEdit = (dialogue: ScriptDialogueItem) => {
+    if (!canEditScript) {
+      return;
+    }
+
     setEditingDialogueId(dialogue.id);
     setEditingContent(dialogue.content);
     setEditingSectionId(null);
@@ -914,6 +957,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleStartEditSection = (section: ScriptSectionItem) => {
+    if (!canEditScript) {
+      return;
+    }
+
     setEditingSectionId(section.id);
     setEditingSectionTitle(section.title);
     setEditingDialogueId(null);
@@ -949,6 +996,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleSaveEdit = async (dialogue: ScriptDialogueItem) => {
+    if (!canEditScript) {
+      return;
+    }
+
     const trimmedContent = editingContent.trim();
     if (!trimmedContent) {
       setActionErrorMessage("セリフ本文を入力してください。");
@@ -999,6 +1050,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleSaveSectionEdit = async (section: ScriptSectionItem) => {
+    if (!canEditScript) {
+      return;
+    }
+
     const trimmedTitle = editingSectionTitle.trim();
     if (!trimmedTitle) {
       setActionErrorMessage("セクション名を入力してください。");
@@ -1030,6 +1085,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleDeleteItem = async (itemId: string) => {
+    if (!canEditScript) {
+      return;
+    }
+
     if (!window.confirm("削除しますか？")) {
       return;
     }
@@ -1074,6 +1133,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleToggleSelectionMode = () => {
+    if (!canEditScript) {
+      return;
+    }
+
     setIsSelectionMode((current) => !current);
     setSelectedBlockKeys([]);
     setLastSelectedBlockKey(null);
@@ -1115,6 +1178,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleDeleteSelectedBlocks = async () => {
+    if (!canEditScript) {
+      return;
+    }
+
     if (selectedBlockKeys.length === 0) {
       return;
     }
@@ -1176,6 +1243,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleOpenPreview = async () => {
+    if (!canEditScript) {
+      return;
+    }
+
     if (!script || !origin || typeof window === "undefined") {
       return;
     }
@@ -1247,6 +1318,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleCycleSpeaker = async (block: DisplayBlock) => {
+    if (!canEditScript) {
+      return;
+    }
+
     if (speakers.length <= 1) {
       return;
     }
@@ -1349,6 +1424,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleAddReference = async () => {
+    if (!canEditScript) {
+      return;
+    }
+
     if (!script) {
       return;
     }
@@ -1411,6 +1490,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleStartEditReference = (reference: ScriptReference) => {
+    if (!canEditScript) {
+      return;
+    }
+
     setReferenceTextInput(reference.text);
     setReferenceUrlInput(reference.url);
     setEditingReferenceId(reference.id);
@@ -1425,6 +1508,10 @@ const ProjectScriptComposePage = () => {
   };
 
   const handleDeleteReference = async (referenceId: string) => {
+    if (!canEditScript) {
+      return;
+    }
+
     if (!script) {
       return;
     }
@@ -1522,7 +1609,13 @@ const ProjectScriptComposePage = () => {
       <Grid
         templateColumns={{
           base: "1fr",
-          lg: isMemoOpen ? "320px minmax(0, 1fr) minmax(320px, 33vw)" : "320px minmax(0, 1fr)"
+          lg: canEditScript
+            ? isMemoOpen
+              ? "320px minmax(0, 1fr) minmax(320px, 33vw)"
+              : "320px minmax(0, 1fr)"
+            : isMemoOpen
+              ? "minmax(0, 1fr) minmax(320px, 33vw)"
+              : "minmax(0, 1fr)"
         }}
         gap={0}
         minH="100vh"
@@ -1532,7 +1625,7 @@ const ProjectScriptComposePage = () => {
           }
         }}
       >
-        {isMobileComposerOpen ? (
+        {canEditScript && isMobileComposerOpen ? (
           <Box
             position="fixed"
             inset={0}
@@ -1552,7 +1645,7 @@ const ProjectScriptComposePage = () => {
           maxH={{ base: "78vh", lg: "none" }}
           overflowY="auto"
           order={{ base: 2, lg: 1 }}
-          display={{ base: isMobileComposerOpen ? "block" : "none", lg: "block" }}
+          display={canEditScript ? { base: isMobileComposerOpen ? "block" : "none", lg: "block" } : "none"}
           position={{ base: "fixed", lg: "relative" }}
           left={{ base: 0, lg: "auto" }}
           right={{ base: 0, lg: "auto" }}
@@ -1570,7 +1663,7 @@ const ProjectScriptComposePage = () => {
         >
           <Stack spacing={5}>
             <Stack spacing={2}>
-              <Stack direction="row" spacing={2} justify="space-between" align="center">
+              <Stack direction="row" spacing={2} justify="space-between" align="center" display={{ base: "none", lg: "flex" }}>
                 <Stack direction="row" spacing={2}>
                   <Tooltip label="基本設定へ戻る" hasArrow>
                     <IconButton
@@ -1872,9 +1965,49 @@ const ProjectScriptComposePage = () => {
         >
           <Box
             position="fixed"
+            top={4}
+            left={4}
+            zIndex={30}
+            display={{ base: "block", lg: "none" }}
+            sx={{
+              "@media print": {
+                display: "none"
+              }
+            }}
+          >
+            <Stack direction="row" spacing={2}>
+              <Tooltip label="基本設定へ戻る" hasArrow>
+                <IconButton
+                  as={NextLink}
+                  href={`/projects/${projectId}/scripts/${script.id}`}
+                  aria-label="基本設定へ戻る"
+                  icon={<BackIcon />}
+                  variant="outline"
+                  rounded="full"
+                  bg="whiteAlpha.900"
+                  display={canEditScript ? "inline-flex" : "none"}
+                />
+              </Tooltip>
+              <Tooltip label="一覧に戻る" hasArrow>
+                <IconButton
+                  as={NextLink}
+                  href={`/projects/${projectId}`}
+                  aria-label="一覧に戻る"
+                  icon={<ListIcon />}
+                  variant="ghost"
+                  rounded="full"
+                  bg="whiteAlpha.900"
+                />
+              </Tooltip>
+            </Stack>
+          </Box>
+
+          <Box
+            position="fixed"
             top={{ base: 4, lg: 6 }}
             right={{ base: 4, lg: rightFloatingOffset }}
             zIndex={20}
+            display={canEditScript ? "block" : "none"}
             sx={{
               "@media print": {
                 display: "none"
@@ -1904,7 +2037,7 @@ const ProjectScriptComposePage = () => {
             bottom={{ base: 20, lg: "auto" }}
             right={{ base: 4, lg: "auto" }}
             zIndex={20}
-            display={{ base: "block", lg: "none" }}
+            display={canEditScript ? { base: "block", lg: "none" } : "none"}
             sx={{
               "@media print": {
                 display: "none"
@@ -1958,6 +2091,7 @@ const ProjectScriptComposePage = () => {
                   rounded="full"
                   onClick={() => void handleOpenPreview()}
                   isLoading={isOpeningPreview}
+                  isDisabled={!canEditScript}
                 />
               </Tooltip>
               <Tooltip label="会話ビューを印刷" hasArrow placement="left">
@@ -2000,16 +2134,18 @@ const ProjectScriptComposePage = () => {
                   isDisabled={fontSizeIndex === FONT_SIZE_OPTIONS.length - 1}
                 />
               </Tooltip>
-              <Tooltip label={isSelectionMode ? "選択モードを終了" : "複数選択モード"} hasArrow placement="left">
-                <IconButton
-                  aria-label={isSelectionMode ? "選択モードを終了" : "複数選択モード"}
-                  icon={<SelectModeIcon />}
-                  variant={isSelectionMode ? "solid" : "ghost"}
-                  colorScheme="teal"
-                  rounded="full"
-                  onClick={handleToggleSelectionMode}
-                />
-              </Tooltip>
+              {canEditScript ? (
+                <Tooltip label={isSelectionMode ? "選択モードを終了" : "複数選択モード"} hasArrow placement="left">
+                  <IconButton
+                    aria-label={isSelectionMode ? "選択モードを終了" : "複数選択モード"}
+                    icon={<SelectModeIcon />}
+                    variant={isSelectionMode ? "solid" : "ghost"}
+                    colorScheme="teal"
+                    rounded="full"
+                    onClick={handleToggleSelectionMode}
+                  />
+                </Tooltip>
+              ) : null}
             </Stack>
           </Box>
 
@@ -2051,6 +2187,13 @@ const ProjectScriptComposePage = () => {
           </Box>
 
           <Stack spacing={4} align="stretch" minH="100%">
+            {!canEditScript ? (
+              <Alert status="info" rounded="md">
+                <AlertIcon />
+                viewer 権限のため、このページは閲覧専用です。
+              </Alert>
+            ) : null}
+
             {items.length === 0 ? (
               <Box borderWidth="1px" borderStyle="dashed" borderColor="gray.300" rounded="xl" p={6} bg="white">
                 <Text color="gray.600">まだ項目はありません。</Text>
@@ -2071,7 +2214,7 @@ const ProjectScriptComposePage = () => {
                   colorScheme="teal"
                   onClick={() => setInsertionTarget(0)}
                   rounded="full"
-                  display={isSelectionMode ? "none" : "inline-flex"}
+                  display={canEditScript && !isSelectionMode ? "inline-flex" : "none"}
                   sx={{
                     "@media print": {
                       display: "none"
@@ -2118,7 +2261,7 @@ const ProjectScriptComposePage = () => {
                       colorScheme="teal"
                       onClick={() => setInsertionTarget(block.startIndex)}
                       rounded="full"
-                      display={isSelectionMode ? "none" : "inline-flex"}
+                      display={canEditScript && !isSelectionMode ? "inline-flex" : "none"}
                       sx={{
                         "@media print": {
                           display: "none"
@@ -2132,10 +2275,10 @@ const ProjectScriptComposePage = () => {
                       flex="1 1 auto"
                       minW="0"
                       opacity={isDragged ? 0.55 : 1}
-                      cursor={isSelectionMode ? "pointer" : "grab"}
-                      draggable={!isSelectionMode}
+                      cursor={isSelectionMode ? "pointer" : canEditScript ? "grab" : "default"}
+                      draggable={!isSelectionMode && canEditScript}
                       onDoubleClick={() => {
-                        if (isSelectionMode) {
+                        if (isSelectionMode || !canEditScript) {
                           return;
                         }
                         if (section) {
@@ -2153,13 +2296,16 @@ const ProjectScriptComposePage = () => {
                         handleSelectBlock(blockKey, currentIndex, event.shiftKey, event.metaKey || event.ctrlKey);
                       }}
                       onDragStart={() => {
-                        if (isEditing || isSelectionMode) {
+                        if (isEditing || isSelectionMode || !canEditScript) {
                           return;
                         }
                         setDraggedItemId(blockKey);
                         setDropTargetId(null);
                       }}
                       onDragOver={(event) => {
+                        if (!canEditScript) {
+                          return;
+                        }
                         event.preventDefault();
                         if (draggedItemId && draggedItemId !== blockKey) {
                           setDropTargetId(blockKey);
@@ -2261,6 +2407,7 @@ const ProjectScriptComposePage = () => {
                                 mb={1}
                                 onClick={() => void handleCycleSpeaker(block)}
                                 cursor={
+                                  canEditScript &&
                                   !isSelectionMode &&
                                   block.speakerId !== MEMO_SPEAKER_ID &&
                                   speakers.length > 1
@@ -2269,6 +2416,7 @@ const ProjectScriptComposePage = () => {
                                 }
                                 textAlign="left"
                                 _hover={
+                                  canEditScript &&
                                   !isSelectionMode &&
                                   block.speakerId !== MEMO_SPEAKER_ID &&
                                   speakers.length > 1
@@ -2276,6 +2424,7 @@ const ProjectScriptComposePage = () => {
                                     : undefined
                                 }
                                 disabled={
+                                  !canEditScript ||
                                   isSelectionMode ||
                                   isChangingSpeaker ||
                                   isSavingEdit ||
@@ -2331,8 +2480,10 @@ const ProjectScriptComposePage = () => {
                                   src={media.url}
                                   alt={media.label || "media"}
                                   rounded="lg"
-                                  maxH="220px"
-                                  objectFit="cover"
+                                  w={{ base: "100%", md: "400px" }}
+                                  maxW="400px"
+                                  h="auto"
+                                  objectFit="contain"
                                   bg="white"
                                 />
                               ) : getYouTubeThumbnailUrl(media.url) ? (
@@ -2382,7 +2533,7 @@ const ProjectScriptComposePage = () => {
                         onClick={() => void handleDeleteItem(block.itemIds[0])}
                         isLoading={!!deletingItemId && block.itemIds.includes(deletingItemId)}
                         isDisabled={isSelectionMode || (isEditing && isSavingEdit)}
-                        display={isSelectionMode ? "none" : "inline-flex"}
+                        display={canEditScript && !isSelectionMode ? "inline-flex" : "none"}
                         sx={{
                           "@media print": {
                             display: "none"
@@ -2409,7 +2560,7 @@ const ProjectScriptComposePage = () => {
                   colorScheme="teal"
                   onClick={() => setInsertionTarget(END_INSERTION)}
                   rounded="full"
-                  display={isSelectionMode ? "none" : "inline-flex"}
+                  display={canEditScript && !isSelectionMode ? "inline-flex" : "none"}
                   sx={{
                     "@media print": {
                       display: "none"
@@ -2424,6 +2575,7 @@ const ProjectScriptComposePage = () => {
               bottom={{ base: 4, lg: 6 }}
               right={{ base: 4, lg: rightFloatingOffset }}
               zIndex={20}
+              display={canEditScript ? "block" : "none"}
               sx={{
                 "@media print": {
                   display: "none"
@@ -2564,7 +2716,7 @@ const ProjectScriptComposePage = () => {
           </Stack>
         </Box>
 
-        {isMemoOpen ? (
+        {canEditScript && isMemoOpen ? (
           <Box
             bg="white"
             borderLeftWidth={{ base: "0", lg: "1px" }}

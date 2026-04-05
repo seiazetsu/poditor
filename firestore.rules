@@ -16,6 +16,15 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid;
     }
 
+    function projectRole(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function canEditProject(projectId) {
+      return isProjectMember(projectId)
+        && (projectRole(projectId) == "owner" || projectRole(projectId) == "member");
+    }
+
     match /users/{emailKey} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn()
@@ -38,14 +47,14 @@ service cloud.firestore {
       allow list: if false;
       allow create: if isSignedIn()
         && request.resource.data.projectId is string
-        && isProjectMember(request.resource.data.projectId);
+        && canEditProject(request.resource.data.projectId);
       allow update: if isSignedIn()
         && resource.data.projectId is string
         && request.resource.data.projectId == resource.data.projectId
-        && isProjectMember(resource.data.projectId);
+        && canEditProject(resource.data.projectId);
       allow delete: if isSignedIn()
         && resource.data.projectId is string
-        && isProjectMember(resource.data.projectId);
+        && canEditProject(resource.data.projectId);
     }
 
     // project 本体は参加者のみ read、owner のみ write。
@@ -68,14 +77,17 @@ service cloud.firestore {
 
       // scripts とその配下は参加者なら read/write 可能。
       match /scripts/{scriptId} {
-        allow read, write: if isProjectMember(projectId);
+        allow read: if isProjectMember(projectId);
+        allow write: if canEditProject(projectId);
 
         match /speakers/{speakerId} {
-          allow read, write: if isProjectMember(projectId);
+          allow read: if isProjectMember(projectId);
+          allow write: if canEditProject(projectId);
         }
 
         match /items/{itemId} {
-          allow read, write: if isProjectMember(projectId);
+          allow read: if isProjectMember(projectId);
+          allow write: if canEditProject(projectId);
         }
       }
     }

@@ -7,6 +7,7 @@ import {
   getDocs,
   query,
   serverTimestamp,
+  updateDoc,
   where,
   writeBatch
 } from "firebase/firestore";
@@ -70,7 +71,11 @@ const toProjectName = (value: unknown): string => {
 };
 
 const toMemberRole = (value: unknown): ProjectMemberRole => {
-  return value === "owner" ? "owner" : "member";
+  if (value === "owner" || value === "member" || value === "viewer") {
+    return value;
+  }
+
+  return "member";
 };
 
 const getProjectsCollection = () => {
@@ -201,6 +206,7 @@ export const fetchProjectByIdForUser = async (
   if (!memberSnapshot.exists()) {
     return null;
   }
+  const memberData = memberSnapshot.data() as MemberDocument;
 
   const projectRef = doc(firestore, "projects", projectId);
   const projectSnapshot = await getDoc(projectRef);
@@ -214,7 +220,8 @@ export const fetchProjectByIdForUser = async (
     name: toProjectName(data.name),
     ownerUid: typeof data.ownerUid === "string" ? data.ownerUid : "",
     createdAt: toIsoDate(data.createdAt),
-    updatedAt: toIsoDate(data.updatedAt)
+    updatedAt: toIsoDate(data.updatedAt),
+    currentUserRole: toMemberRole(memberData.role)
   };
 };
 
@@ -236,7 +243,13 @@ export const fetchProjectMembers = async (projectId: string): Promise<ProjectMem
     })
     .sort((a, b) => {
       if (a.role !== b.role) {
-        return a.role === "owner" ? -1 : 1;
+        const roleOrder: Record<ProjectMemberRole, number> = {
+          owner: 0,
+          member: 1,
+          viewer: 2
+        };
+
+        return roleOrder[a.role] - roleOrder[b.role];
       }
       return a.email.localeCompare(b.email, "ja");
     });
@@ -281,6 +294,20 @@ export const addProjectMember = async (
   });
 
   await batch.commit();
+};
+
+export const updateProjectMemberRole = async (
+  projectId: string,
+  memberUid: string,
+  role: ProjectMemberRole
+): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const memberRef = doc(firestore, "projects", projectId, "members", memberUid);
+
+  await updateDoc(memberRef, {
+    role,
+    updatedAt: serverTimestamp()
+  });
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {

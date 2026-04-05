@@ -435,8 +435,10 @@ const PublicScriptPreviewPage = () => {
                             src={block.media.url}
                             alt={block.media.label || "media"}
                             rounded="lg"
-                            maxH="320px"
-                            objectFit="cover"
+                            w={{ base: "100%", md: "400px" }}
+                            maxW="400px"
+                            h="auto"
+                            objectFit="contain"
                             bg="white"
                           />
                         ) : embeddedVideoUrl ? (

@@ -27,6 +27,7 @@ import { SaveStatus, SaveStatusNotice } from "@/components/scripts/save-status-n
 import { SpeakerManager } from "@/components/scripts/speaker-manager";
 import { useAuth } from "@/components/auth/auth-provider";
 import { fetchProjectByIdForUser } from "@/lib/firebase/projects";
+import { canEditProjectContent } from "@/lib/permissions/project";
 import {
   disableProjectScriptPreview,
   fetchProjectScriptById,
@@ -34,6 +35,7 @@ import {
   updateProjectScriptStatus,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
+import { ProjectMemberRole } from "@/types/project";
 import { ScriptDetail, ScriptStatus } from "@/types/script";
 
 const CopyIcon = () => (
@@ -150,6 +152,7 @@ const ProjectScriptSettingsPage = () => {
   const [previewSaveStatus, setPreviewSaveStatus] = useState<SaveStatus>("idle");
   const [previewSaveMessage, setPreviewSaveMessage] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
+  const [currentUserRole, setCurrentUserRole] = useState<ProjectMemberRole>("member");
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -171,6 +174,7 @@ const ProjectScriptSettingsPage = () => {
         setTitleInput("");
         return;
       }
+      setCurrentUserRole(project.currentUserRole);
 
       const scriptData = await fetchProjectScriptById(projectId, scriptId);
 
@@ -414,6 +418,37 @@ const ProjectScriptSettingsPage = () => {
                 rounded="full"
               />
             </Tooltip>
+          </Stack>
+        </Container>
+      </Box>
+    );
+  }
+
+  if (!canEditProjectContent(currentUserRole)) {
+    return (
+      <Box bg="gray.50" minH="100vh" py={10}>
+        <Container maxW="4xl">
+          <Stack spacing={4} bg="white" p={6} rounded="md" borderWidth="1px">
+            <Heading size="md">台本基本設定</Heading>
+            <Text color="gray.700">viewer 権限では台本基本設定を編集できません。</Text>
+            <Stack direction="row" spacing={3}>
+              <IconButton
+                as={NextLink}
+                href={`/projects/${projectId}/scripts/${script.id}/compose`}
+                aria-label="会話作成ページへ進む"
+                icon={<ComposeIcon />}
+                colorScheme="teal"
+                rounded="full"
+              />
+              <IconButton
+                as={NextLink}
+                href={`/projects/${projectId}`}
+                aria-label="一覧に戻る"
+                icon={<BackIcon />}
+                variant="outline"
+                rounded="full"
+              />
+            </Stack>
           </Stack>
         </Container>
       </Box>

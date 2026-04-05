@@ -28,7 +28,13 @@ import {
 } from "@chakra-ui/react";
 
 import { useAuth } from "@/components/auth/auth-provider";
-import { addProjectMember, fetchProjectByIdForUser, fetchProjectMembers } from "@/lib/firebase/projects";
+import {
+  addProjectMember,
+  fetchProjectByIdForUser,
+  fetchProjectMembers,
+  updateProjectMemberRole
+} from "@/lib/firebase/projects";
+import { canEditProjectContent, canManageProjectMembers } from "@/lib/permissions/project";
 import {
   deleteProjectScript,
   duplicateProjectScript,
@@ -37,7 +43,7 @@ import {
   updateProjectScriptStatus,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
-import { ProjectDetail, ProjectMember } from "@/types/project";
+import { ProjectDetail, ProjectMember, ProjectMemberRole } from "@/types/project";
 import { ScriptStatus, ScriptSummary } from "@/types/script";
 
 const SettingsIcon = () => (
@@ -194,7 +200,9 @@ const ProjectDetailPage = () => {
   const [isSavingScriptStatusId, setIsSavingScriptStatusId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | ScriptStatus>("all");
   const [memberEmailInput, setMemberEmailInput] = useState("");
+  const [memberRoleInput, setMemberRoleInput] = useState<ProjectMemberRole>("viewer");
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [isUpdatingMemberRoleId, setIsUpdatingMemberRoleId] = useState<string | null>(null);
   const [draggedScriptId, setDraggedScriptId] = useState<string | null>(null);
   const [dropTargetScriptId, setDropTargetScriptId] = useState<string | null>(null);
   const [isReorderingScripts, setIsReorderingScripts] = useState(false);
@@ -247,7 +255,15 @@ const ProjectDetailPage = () => {
     };
   }, []);
 
+  const currentUserRole = project?.currentUserRole ?? "viewer";
+  const canEditScripts = canEditProjectContent(currentUserRole);
+  const canManageMembers = canManageProjectMembers(currentUserRole);
+
   const handleDeleteScript = async (scriptId: string) => {
+    if (!canEditScripts) {
+      return;
+    }
+
     if (!window.confirm("この台本を削除しますか？")) {
       return;
     }
@@ -266,6 +282,10 @@ const ProjectDetailPage = () => {
   };
 
   const handleDuplicateScript = async (scriptId: string) => {
+    if (!canEditScripts) {
+      return;
+    }
+
     setIsDuplicatingScriptId(scriptId);
     setErrorMessage(null);
 
@@ -281,6 +301,10 @@ const ProjectDetailPage = () => {
   };
 
   const handleStartEditingScriptTitle = (script: ScriptSummary) => {
+    if (!canEditScripts) {
+      return;
+    }
+
     setEditingScriptId(script.id);
     setEditingTitleInput(script.title);
     setErrorMessage(null);
@@ -307,6 +331,10 @@ const ProjectDetailPage = () => {
   };
 
   const handleSaveScriptTitle = async (scriptId: string) => {
+    if (!canEditScripts) {
+      return;
+    }
+
     const trimmedTitle = editingTitleInput.trim();
     if (!trimmedTitle) {
       setErrorMessage("タイトルを入力してください。");
@@ -353,6 +381,10 @@ const ProjectDetailPage = () => {
   };
 
   const handleCycleScriptStatus = async (script: ScriptSummary) => {
+    if (!canEditScripts) {
+      return;
+    }
+
     const nextStatus = getNextScriptStatus(script.status);
 
     setIsSavingScriptStatusId(script.id);
@@ -375,6 +407,10 @@ const ProjectDetailPage = () => {
   };
 
   const handleAddMember = async () => {
+    if (!canManageMembers) {
+      return;
+    }
+
     const trimmedEmail = memberEmailInput.trim();
 
     if (!trimmedEmail) {
@@ -388,9 +424,10 @@ const ProjectDetailPage = () => {
     try {
       await addProjectMember(projectId, {
         email: trimmedEmail,
-        role: "member"
+        role: memberRoleInput
       });
       setMemberEmailInput("");
+      setMemberRoleInput("viewer");
       const nextMembers = await fetchProjectMembers(projectId);
       setMembers(nextMembers);
     } catch (error) {
@@ -404,7 +441,26 @@ const ProjectDetailPage = () => {
     }
   };
 
+  const handleUpdateMemberRole = async (member: ProjectMember, role: ProjectMemberRole) => {
+    if (!canManageMembers || member.role === "owner" || member.role === role) {
+      return;
+    }
+
+    setIsUpdatingMemberRoleId(member.id);
+    setErrorMessage(null);
+
+    try {
+      await updateProjectMemberRole(projectId, member.uid, role);
+      setMembers((prev) => prev.map((current) => (current.id === member.id ? { ...current, role } : current)));
+    } catch {
+      setErrorMessage("参加者権限の更新に失敗しました。");
+    } finally {
+      setIsUpdatingMemberRoleId(null);
+    }
+  };
+
   const canReorderScripts =
+    canEditScripts &&
     statusFilter === "all" &&
     !editingScriptId &&
     !isSavingScriptStatusId &&
@@ -530,41 +586,70 @@ const ProjectDetailPage = () => {
                             px={3}
                             py={1}
                             borderRadius="full"
-                            colorScheme={member.role === "owner" ? "purple" : "teal"}
+                            colorScheme={
+                              member.role === "owner" ? "purple" : member.role === "member" ? "teal" : "gray"
+                            }
                           >
                             {member.role}
                           </Badge>
+                          {canManageMembers && member.role !== "owner" ? (
+                            <FormControl maxW="200px">
+                              <Select
+                                size="sm"
+                                value={member.role}
+                                onChange={(event) =>
+                                  void handleUpdateMemberRole(member, event.target.value as ProjectMemberRole)
+                                }
+                                isDisabled={isUpdatingMemberRoleId === member.id}
+                              >
+                                <option value="member">member（編集可）</option>
+                                <option value="viewer">viewer（閲覧のみ）</option>
+                              </Select>
+                            </FormControl>
+                          ) : null}
                         </Stack>
                       ))}
                     </Stack>
                   )}
 
-                  <Box borderWidth="1px" rounded="md" p={4}>
-                    <Stack spacing={3}>
-                      <Heading size="sm">参加者を追加</Heading>
-                      <Text fontSize="sm" color="gray.600">
-                        初期実装ではメールアドレスだけを入力して member として追加します。
-                      </Text>
-                      <FormControl isRequired>
-                        <FormLabel>メールアドレス</FormLabel>
-                        <Input
-                          type="email"
-                          value={memberEmailInput}
-                          onChange={(event) => setMemberEmailInput(event.target.value)}
-                        />
-                      </FormControl>
-                      <Button
-                        alignSelf="flex-start"
-                        colorScheme="teal"
-                        variant="outline"
-                        onClick={() => void handleAddMember()}
-                        isLoading={isAddingMember}
-                        isDisabled={!memberEmailInput.trim()}
-                      >
-                        member を追加
-                      </Button>
-                    </Stack>
-                  </Box>
+                  {canManageMembers ? (
+                    <Box borderWidth="1px" rounded="md" p={4}>
+                      <Stack spacing={3}>
+                        <Heading size="sm">参加者を追加</Heading>
+                        <Text fontSize="sm" color="gray.600">
+                          メールアドレスと権限を指定して参加者を追加します。
+                        </Text>
+                        <FormControl isRequired>
+                          <FormLabel>メールアドレス</FormLabel>
+                          <Input
+                            type="email"
+                            value={memberEmailInput}
+                            onChange={(event) => setMemberEmailInput(event.target.value)}
+                          />
+                        </FormControl>
+                        <FormControl isRequired maxW="240px">
+                          <FormLabel>権限</FormLabel>
+                          <Select
+                            value={memberRoleInput}
+                            onChange={(event) => setMemberRoleInput(event.target.value as ProjectMemberRole)}
+                          >
+                            <option value="viewer">viewer（閲覧のみ）</option>
+                            <option value="member">member（編集可）</option>
+                          </Select>
+                        </FormControl>
+                        <Button
+                          alignSelf="flex-start"
+                          colorScheme="teal"
+                          variant="outline"
+                          onClick={() => void handleAddMember()}
+                          isLoading={isAddingMember}
+                          isDisabled={!memberEmailInput.trim()}
+                        >
+                          参加者を追加
+                        </Button>
+                      </Stack>
+                    </Box>
+                  ) : null}
                 </Stack>
               </AccordionPanel>
             </AccordionItem>
@@ -574,18 +659,20 @@ const ProjectDetailPage = () => {
             <Stack spacing={4}>
               <Stack direction="row" justify="space-between" align="center">
                 <Heading size="md">台本一覧</Heading>
-                <Tooltip label="新規台本作成" hasArrow>
-                  <IconButton
-                    as={NextLink}
-                    href={`/projects/${projectId}/scripts/new`}
-                    aria-label="新規台本作成"
-                    icon={<AddIcon />}
-                    size="sm"
-                    colorScheme="teal"
-                    variant="outline"
-                    rounded="full"
-                  />
-                </Tooltip>
+                {canEditScripts ? (
+                  <Tooltip label="新規台本作成" hasArrow>
+                    <IconButton
+                      as={NextLink}
+                      href={`/projects/${projectId}/scripts/new`}
+                      aria-label="新規台本作成"
+                      icon={<AddIcon />}
+                      size="sm"
+                      colorScheme="teal"
+                      variant="outline"
+                      rounded="full"
+                    />
+                  </Tooltip>
+                ) : null}
               </Stack>
 
               <FormControl maxW="220px">
@@ -690,6 +777,7 @@ const ProjectDetailPage = () => {
                           onDragStart={(event) => handleScriptDragStart(event, script.id)}
                           onDragEnd={handleScriptDragEnd}
                           aria-label="並び替えハンドル"
+                          display={canEditScripts ? "block" : "none"}
                         >
                           <DragHandleIcon />
                         </Box>
@@ -700,6 +788,9 @@ const ProjectDetailPage = () => {
                           cursor="pointer"
                           onClick={() => handleScriptTitleClick(script.id)}
                           onDoubleClick={() => {
+                            if (!canEditScripts) {
+                              return;
+                            }
                             if (singleClickTimeoutRef.current) {
                               window.clearTimeout(singleClickTimeoutRef.current);
                               singleClickTimeoutRef.current = null;
@@ -727,11 +818,15 @@ const ProjectDetailPage = () => {
                           px={2.5}
                           py={1}
                           flexShrink={0}
-                          cursor={isSavingScriptStatusId === script.id || editingScriptId === script.id ? "default" : "pointer"}
+                          cursor={
+                            !canEditScripts || isSavingScriptStatusId === script.id || editingScriptId === script.id
+                              ? "default"
+                              : "pointer"
+                          }
                           opacity={isSavingScriptStatusId === script.id ? 0.6 : 1}
                           transition="opacity 0.2s ease"
                           onClick={() => {
-                            if (isSavingScriptStatusId === script.id || editingScriptId === script.id) {
+                            if (!canEditScripts || isSavingScriptStatusId === script.id || editingScriptId === script.id) {
                               return;
                             }
 
@@ -752,6 +847,7 @@ const ProjectDetailPage = () => {
                             variant="ghost"
                             colorScheme="teal"
                             rounded="full"
+                            display={canEditScripts ? "inline-flex" : "none"}
                           />
                         </Tooltip>
                         <Tooltip label="会話作成" hasArrow>
@@ -777,8 +873,9 @@ const ProjectDetailPage = () => {
                               void handleDuplicateScript(script.id);
                             }}
                             isLoading={isDuplicatingScriptId === script.id}
-                            isDisabled={isDeletingScriptId === script.id || editingScriptId === script.id}
+                            isDisabled={isDeletingScriptId === script.id || editingScriptId === script.id || !canEditScripts}
                             rounded="full"
+                            display={canEditScripts ? "inline-flex" : "none"}
                           />
                         </Tooltip>
                         <Tooltip label="削除" hasArrow>
@@ -795,10 +892,11 @@ const ProjectDetailPage = () => {
                             isDisabled={
                               isDuplicatingScriptId === script.id ||
                               editingScriptId === script.id ||
-                              project?.ownerUid !== user?.uid
+                              project?.ownerUid !== user?.uid ||
+                              !canEditScripts
                             }
                             rounded="full"
-                            display={project?.ownerUid === user?.uid ? "inline-flex" : "none"}
+                            display={project?.ownerUid === user?.uid && canEditScripts ? "inline-flex" : "none"}
                           />
                         </Tooltip>
                       </Stack>
