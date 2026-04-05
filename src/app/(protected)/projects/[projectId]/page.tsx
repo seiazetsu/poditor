@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { DragEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import NextLink from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -33,6 +33,7 @@ import {
   deleteProjectScript,
   duplicateProjectScript,
   fetchScriptsByProjectId,
+  reorderProjectScripts,
   updateProjectScriptStatus,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
@@ -130,15 +131,18 @@ const AddIcon = () => (
   </Icon>
 );
 
-const formatUpdatedAt = (updatedAt: string): string => {
-  return new Intl.DateTimeFormat("ja-JP", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(updatedAt));
-};
+const DragHandleIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
 
 const formatCreatedAt = (createdAt: string): string => {
   return new Intl.DateTimeFormat("ja-JP", {
@@ -191,6 +195,9 @@ const ProjectDetailPage = () => {
   const [statusFilter, setStatusFilter] = useState<"all" | ScriptStatus>("all");
   const [memberEmailInput, setMemberEmailInput] = useState("");
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [draggedScriptId, setDraggedScriptId] = useState<string | null>(null);
+  const [dropTargetScriptId, setDropTargetScriptId] = useState<string | null>(null);
+  const [isReorderingScripts, setIsReorderingScripts] = useState(false);
   const singleClickTimeoutRef = useRef<number | null>(null);
 
   const projectId = params.projectId;
@@ -397,6 +404,69 @@ const ProjectDetailPage = () => {
     }
   };
 
+  const canReorderScripts =
+    statusFilter === "all" &&
+    !editingScriptId &&
+    !isSavingScriptStatusId &&
+    !isSavingScriptTitleId &&
+    !isDeletingScriptId &&
+    !isDuplicatingScriptId &&
+    !isReorderingScripts;
+
+  const handleScriptDragStart = (event: DragEvent<HTMLElement>, scriptId: string) => {
+    if (!canReorderScripts) {
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.dropEffect = "move";
+    event.dataTransfer.setData("text/plain", scriptId);
+
+    setDraggedScriptId(scriptId);
+    setDropTargetScriptId(scriptId);
+  };
+
+  const handleScriptDragEnd = () => {
+    setDraggedScriptId(null);
+    setDropTargetScriptId(null);
+  };
+
+  const handleScriptDrop = async (targetScriptId: string) => {
+    if (!draggedScriptId || draggedScriptId === targetScriptId || !canReorderScripts) {
+      handleScriptDragEnd();
+      return;
+    }
+
+    const sourceIndex = scripts.findIndex((script) => script.id === draggedScriptId);
+    const targetIndex = scripts.findIndex((script) => script.id === targetScriptId);
+
+    if (sourceIndex === -1 || targetIndex === -1) {
+      handleScriptDragEnd();
+      return;
+    }
+
+    const previousScripts = scripts;
+    const reordered = [...scripts];
+    const [movedScript] = reordered.splice(sourceIndex, 1);
+    reordered.splice(targetIndex, 0, movedScript);
+
+    setScripts(reordered);
+    setIsReorderingScripts(true);
+    handleScriptDragEnd();
+
+    try {
+      await reorderProjectScripts(
+        projectId,
+        reordered.map((script) => script.id)
+      );
+    } catch {
+      setScripts(previousScripts);
+      setErrorMessage("台本一覧の並び替え保存に失敗しました。");
+    } finally {
+      setIsReorderingScripts(false);
+    }
+  };
+
   const filteredScripts = scripts.filter((script) => statusFilter === "all" || script.status === statusFilter);
 
   return (
@@ -406,11 +476,6 @@ const ProjectDetailPage = () => {
           <Stack direction={{ base: "column", sm: "row" }} justify="space-between" align="start">
             <Stack spacing={1}>
               <Heading size="lg">{project?.name ?? "プロジェクト詳細"}</Heading>
-              {project ? (
-                <Text color="gray.600" fontSize="sm">
-                  更新日時: {formatUpdatedAt(project.updatedAt)}
-                </Text>
-              ) : null}
             </Stack>
             <Stack direction={{ base: "column", sm: "row" }} spacing={3}>
               <Button as={NextLink} href="/projects" variant="outline">
@@ -536,6 +601,12 @@ const ProjectDetailPage = () => {
                 </Select>
               </FormControl>
 
+              {statusFilter !== "all" ? (
+                <Text color="gray.500" fontSize="sm">
+                  並び替えは「全て」表示時に利用できます。
+                </Text>
+              ) : null}
+
               {isLoading ? <Text color="gray.600">台本を読み込んでいます...</Text> : null}
 
               {!isLoading && scripts.length === 0 ? (
@@ -552,6 +623,8 @@ const ProjectDetailPage = () => {
                   borderBottomWidth="1px"
                   borderColor="gray.100"
                   py={2}
+                  bg={dropTargetScriptId === script.id && draggedScriptId !== script.id ? "teal.50" : "transparent"}
+                  transition="background-color 0.15s ease"
                 >
                   <Stack
                     spacing={{ base: 2, md: 0 }}
@@ -559,6 +632,20 @@ const ProjectDetailPage = () => {
                     align={{ base: "stretch", md: "center" }}
                     direction={{ base: "column", md: "row" }}
                     minH={{ base: "auto", md: "36px" }}
+                    onDragOver={(event) => {
+                      if (!canReorderScripts || !draggedScriptId || draggedScriptId === script.id) {
+                        return;
+                      }
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      if (dropTargetScriptId !== script.id) {
+                        setDropTargetScriptId(script.id);
+                      }
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      void handleScriptDrop(script.id);
+                    }}
                   >
                     {editingScriptId === script.id ? (
                       <Stack direction="row" spacing={2} align="center" flex="1 1 auto" minW="0">
@@ -595,22 +682,34 @@ const ProjectDetailPage = () => {
                         </Tooltip>
                       </Stack>
                     ) : (
-                      <Text
-                        fontWeight="medium"
-                        noOfLines={1}
-                        flex="1 1 auto"
-                        cursor="pointer"
-                        onClick={() => handleScriptTitleClick(script.id)}
-                        onDoubleClick={() => {
-                          if (singleClickTimeoutRef.current) {
-                            window.clearTimeout(singleClickTimeoutRef.current);
-                            singleClickTimeoutRef.current = null;
-                          }
-                          handleStartEditingScriptTitle(script);
-                        }}
-                      >
-                        {script.title}
-                      </Text>
+                      <Stack direction="row" spacing={2} align="center" flex="1 1 auto" minW="0">
+                        <Box
+                          color={canReorderScripts ? "gray.500" : "gray.300"}
+                          cursor={canReorderScripts ? "grab" : "default"}
+                          draggable={canReorderScripts}
+                          onDragStart={(event) => handleScriptDragStart(event, script.id)}
+                          onDragEnd={handleScriptDragEnd}
+                          aria-label="並び替えハンドル"
+                        >
+                          <DragHandleIcon />
+                        </Box>
+                        <Text
+                          fontWeight="medium"
+                          noOfLines={1}
+                          flex="1 1 auto"
+                          cursor="pointer"
+                          onClick={() => handleScriptTitleClick(script.id)}
+                          onDoubleClick={() => {
+                            if (singleClickTimeoutRef.current) {
+                              window.clearTimeout(singleClickTimeoutRef.current);
+                              singleClickTimeoutRef.current = null;
+                            }
+                            handleStartEditingScriptTitle(script);
+                          }}
+                        >
+                          {script.title}
+                        </Text>
+                      </Stack>
                     )}
                     <Stack
                       direction={{ base: "column", sm: "row" }}
@@ -641,9 +740,6 @@ const ProjectDetailPage = () => {
                         >
                           {SCRIPT_STATUS_LABELS[script.status]}
                         </Badge>
-                        <Text color="gray.600" fontSize="sm" whiteSpace={{ base: "normal", sm: "nowrap" }} flexShrink={0}>
-                          更新日時: {formatUpdatedAt(script.updatedAt)}
-                        </Text>
                       </Stack>
                       <Stack direction="row" spacing={1} flexShrink={0}>
                         <Tooltip label="基本設定" hasArrow>

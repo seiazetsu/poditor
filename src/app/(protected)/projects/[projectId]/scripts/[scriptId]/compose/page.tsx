@@ -2089,6 +2089,7 @@ const ProjectScriptComposePage = () => {
               const speaker = block.speakerId === MEMO_SPEAKER_ID ? MEMO_SPEAKER : speakerMap[block.speakerId];
               const color = speaker?.color ?? "#CBD5E0";
               const name = speaker?.name ?? "話者未設定";
+              const isMemoBlock = block.speakerId === MEMO_SPEAKER_ID;
               const isDragged = draggedItemId === blockKey;
               const isDropTarget = dropTargetId === blockKey && !isDragged;
               const isSectionEditing = !!section && editingSectionId === section.id;
@@ -2201,11 +2202,11 @@ const ProjectScriptComposePage = () => {
                           flex="1 1 auto"
                           minW="0"
                           py={1}
-                          px={isSelectedBlock ? 3 : 0}
-                          bg={isSelectedBlock ? "teal.50" : "transparent"}
+                          px={isSelectedBlock || isMemoBlock ? 3 : 0}
+                          bg={isSelectedBlock ? "teal.50" : isMemoBlock ? "gray.100" : "transparent"}
                           borderRadius="lg"
-                          borderWidth={isSelectedBlock ? "1px" : "0"}
-                          borderColor={isSelectedBlock ? "teal.200" : "transparent"}
+                          borderWidth={isSelectedBlock || isMemoBlock ? "1px" : "0"}
+                          borderColor={isSelectedBlock ? "teal.200" : isMemoBlock ? "gray.300" : "transparent"}
                         >
                           {section ? (
                             <Box py={{ base: 2.5, lg: 3 }} borderBottomWidth="1px" borderColor="gray.200">

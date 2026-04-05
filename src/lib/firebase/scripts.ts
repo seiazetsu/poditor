@@ -3,6 +3,7 @@ import {
   doc,
   deleteDoc,
   getDoc,
+  getDocFromServer,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -499,7 +500,13 @@ export const disableProjectScriptPreview = async (
 };
 
 export const fetchPublicScriptPreview = async (token: string): Promise<PublicScriptPreview | null> => {
-  const snapshot = await getDoc(getPublicPreviewDocRef(token));
+  let snapshot;
+
+  try {
+    snapshot = await getDocFromServer(getPublicPreviewDocRef(token));
+  } catch {
+    snapshot = await getDoc(getPublicPreviewDocRef(token));
+  }
 
   if (!snapshot.exists()) {
     return null;
@@ -610,6 +617,24 @@ export const reorderScripts = async (
     const scriptRef = doc(firestore, "scripts", script.id);
     batch.update(scriptRef, {
       ownerUid,
+      sortOrder: index,
+      updatedAt: serverTimestamp()
+    });
+  });
+
+  await batch.commit();
+};
+
+export const reorderProjectScripts = async (
+  projectId: string,
+  scriptIdsInOrder: string[]
+): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const batch = writeBatch(firestore);
+
+  scriptIdsInOrder.forEach((scriptId, index) => {
+    const scriptRef = doc(firestore, "projects", projectId, "scripts", scriptId);
+    batch.update(scriptRef, {
       sortOrder: index,
       updatedAt: serverTimestamp()
     });

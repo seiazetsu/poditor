@@ -97,9 +97,37 @@ const getYouTubeThumbnailUrl = (url: string): string | null => {
   return null;
 };
 
+const getVideoEmbedUrl = (url: string): string | null => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+
+    if (host === "youtu.be") {
+      const id = parsed.pathname.replace("/", "");
+      return id ? `https://www.youtube.com/embed/${id}` : null;
+    }
+
+    if (host.includes("youtube.com")) {
+      const id = parsed.searchParams.get("v");
+      return id ? `https://www.youtube.com/embed/${id}` : null;
+    }
+
+    if (host.includes("vimeo.com")) {
+      const id = parsed.pathname.split("/").filter(Boolean).pop();
+      return id ? `https://player.vimeo.com/video/${id}` : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const isDirectVideoFileUrl = (url: string): boolean => /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url);
+
 const isVideoUrl = (url: string): boolean => {
   return (
-    /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url) ||
+    isDirectVideoFileUrl(url) ||
     url.includes("youtube.com") ||
     url.includes("youtu.be") ||
     url.includes("vimeo.com")
@@ -364,6 +392,7 @@ const PublicScriptPreviewPage = () => {
               const speaker = block.speakerId === MEMO_SPEAKER_ID ? MEMO_SPEAKER : speakerMap[block.speakerId];
               const color = speaker?.color ?? "#CBD5E0";
               const name = speaker?.name ?? "話者未設定";
+              const embeddedVideoUrl = block.media ? getVideoEmbedUrl(block.media.url) : null;
 
               return (
                 <Stack key={block.key} direction="row" spacing={3} align="stretch">
@@ -410,17 +439,19 @@ const PublicScriptPreviewPage = () => {
                             objectFit="cover"
                             bg="white"
                           />
-                        ) : getYouTubeThumbnailUrl(block.media.url) ? (
+                        ) : embeddedVideoUrl ? (
                           <AspectRatio ratio={16 / 9} maxW="560px">
-                            <Image
-                              src={getYouTubeThumbnailUrl(block.media.url) ?? ""}
-                              alt={block.media.label || "video thumbnail"}
+                            <Box
+                              as="iframe"
+                              src={embeddedVideoUrl}
+                              title={block.media.label || "動画"}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              allowFullScreen
                               rounded="lg"
-                              objectFit="cover"
                               bg="blackAlpha.100"
                             />
                           </AspectRatio>
-                        ) : isVideoUrl(block.media.url) ? (
+                        ) : isVideoUrl(block.media.url) && isDirectVideoFileUrl(block.media.url) ? (
                           <AspectRatio ratio={16 / 9} maxW="560px">
                             <Box
                               as="video"
@@ -429,6 +460,16 @@ const PublicScriptPreviewPage = () => {
                               controls
                               playsInline
                               preload="metadata"
+                              bg="blackAlpha.100"
+                            />
+                          </AspectRatio>
+                        ) : getYouTubeThumbnailUrl(block.media.url) ? (
+                          <AspectRatio ratio={16 / 9} maxW="560px">
+                            <Image
+                              src={getYouTubeThumbnailUrl(block.media.url) ?? ""}
+                              alt={block.media.label || "video thumbnail"}
+                              rounded="lg"
+                              objectFit="cover"
                               bg="blackAlpha.100"
                             />
                           </AspectRatio>
