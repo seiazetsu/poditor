@@ -709,6 +709,7 @@ export const duplicateProjectScript = async (projectId: string, scriptId: string
   batch.set(duplicatedScriptRef, {
     title: `${sourceTitle}（コピー）`,
     status: toScriptStatus(sourceData.status),
+    sortOrder: -Date.now(),
     references: references.map((reference) => ({
       id: reference.id,
       text: reference.text,
