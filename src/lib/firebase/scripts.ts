@@ -286,6 +286,7 @@ export const createScript = async ({ ownerUid, title }: CreateScriptInput): Prom
     ownerUid,
     title: trimmedTitle,
     status: "draft",
+    sortOrder: -Date.now(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -329,6 +330,7 @@ export const createProjectScript = async (
   const docRef = await addDoc(scriptsRef, {
     title: trimmedTitle,
     status: "draft",
+    sortOrder: -Date.now(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
