@@ -7,6 +7,7 @@ import {
   Alert,
   AlertIcon,
   Box,
+  Button,
   Container,
   FormControl,
   FormLabel,
@@ -20,6 +21,7 @@ import {
   Spinner,
   Stack,
   Text,
+  Textarea,
   Tooltip
 } from "@chakra-ui/react";
 
@@ -33,10 +35,11 @@ import {
   fetchProjectScriptById,
   refreshProjectScriptPreview,
   updateProjectScriptStatus,
+  updateProjectScriptReferences,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
 import { ProjectMemberRole } from "@/types/project";
-import { ScriptDetail, ScriptStatus } from "@/types/script";
+import { ScriptDetail, ScriptReference, ScriptStatus } from "@/types/script";
 
 const CopyIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
@@ -116,6 +119,32 @@ const DisableIcon = () => (
   </Icon>
 );
 
+const EditIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="m4 20 4.2-1 9.3-9.3a1.8 1.8 0 0 0 0-2.5l-.7-.7a1.8 1.8 0 0 0-2.5 0L5 15.8 4 20Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const DeleteIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M4 7h16M9 7V5h6v2m-7 3v7m4-7v7m4-7v7M6 7l1 12h10l1-12"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const formatDateTime = (value: string): string => {
   return new Intl.DateTimeFormat("ja-JP", {
     year: "numeric",
@@ -151,6 +180,12 @@ const ProjectScriptSettingsPage = () => {
   const [isDisablingPreview, setIsDisablingPreview] = useState(false);
   const [previewSaveStatus, setPreviewSaveStatus] = useState<SaveStatus>("idle");
   const [previewSaveMessage, setPreviewSaveMessage] = useState<string | null>(null);
+  const [referenceTextInput, setReferenceTextInput] = useState("");
+  const [referenceUrlInput, setReferenceUrlInput] = useState("");
+  const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
+  const [isSavingReference, setIsSavingReference] = useState(false);
+  const [referenceSaveStatus, setReferenceSaveStatus] = useState<SaveStatus>("idle");
+  const [referenceSaveMessage, setReferenceSaveMessage] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState<ProjectMemberRole>("member");
 
@@ -358,6 +393,125 @@ const ProjectScriptSettingsPage = () => {
       setPreviewSaveMessage("共有プレビューの無効化に失敗しました。");
     } finally {
       setIsDisablingPreview(false);
+    }
+  };
+
+  const handleStartEditReference = (reference: ScriptReference) => {
+    setReferenceTextInput(reference.text);
+    setReferenceUrlInput(reference.url);
+    setEditingReferenceId(reference.id);
+    setReferenceSaveStatus("idle");
+    setReferenceSaveMessage(null);
+  };
+
+  const handleCancelReferenceEdit = () => {
+    setReferenceTextInput("");
+    setReferenceUrlInput("");
+    setEditingReferenceId(null);
+    setReferenceSaveStatus("idle");
+    setReferenceSaveMessage(null);
+  };
+
+  const handleSaveReference = async () => {
+    if (!script) {
+      return;
+    }
+
+    const trimmedText = referenceTextInput.trim();
+    const trimmedUrl = referenceUrlInput.trim();
+
+    if (!trimmedText && !trimmedUrl) {
+      setReferenceSaveStatus("error");
+      setReferenceSaveMessage("参考文献の文字列またはURLを入力してください。");
+      return;
+    }
+
+    if (trimmedUrl) {
+      try {
+        new URL(trimmedUrl);
+      } catch {
+        setReferenceSaveStatus("error");
+        setReferenceSaveMessage("参考文献URLの形式が不正です。");
+        return;
+      }
+    }
+
+    const nextReferences = editingReferenceId
+      ? script.references.map((reference) =>
+          reference.id === editingReferenceId
+            ? {
+                ...reference,
+                text: trimmedText,
+                url: trimmedUrl
+              }
+            : reference
+        )
+      : [
+          ...script.references,
+          {
+            id: crypto.randomUUID(),
+            text: trimmedText,
+            url: trimmedUrl
+          }
+        ];
+
+    setIsSavingReference(true);
+    setReferenceSaveStatus("saving");
+    setReferenceSaveMessage(editingReferenceId ? "参考文献を保存しています..." : "参考文献を追加しています...");
+
+    try {
+      await updateProjectScriptReferences(projectId, script.id, { references: nextReferences });
+      setScript({
+        ...script,
+        references: nextReferences,
+        updatedAt: new Date().toISOString()
+      });
+      setReferenceTextInput("");
+      setReferenceUrlInput("");
+      setEditingReferenceId(null);
+      setReferenceSaveStatus("success");
+      setReferenceSaveMessage(editingReferenceId ? "参考文献を保存しました。" : "参考文献を追加しました。");
+    } catch {
+      setReferenceSaveStatus("error");
+      setReferenceSaveMessage(editingReferenceId ? "参考文献の保存に失敗しました。" : "参考文献の追加に失敗しました。");
+    } finally {
+      setIsSavingReference(false);
+    }
+  };
+
+  const handleDeleteReference = async (referenceId: string) => {
+    if (!script) {
+      return;
+    }
+
+    if (!window.confirm("参考文献を削除しますか？")) {
+      return;
+    }
+
+    const nextReferences = script.references.filter((reference) => reference.id !== referenceId);
+    setIsSavingReference(true);
+    setReferenceSaveStatus("saving");
+    setReferenceSaveMessage("参考文献を削除しています...");
+
+    try {
+      await updateProjectScriptReferences(projectId, script.id, { references: nextReferences });
+      setScript({
+        ...script,
+        references: nextReferences,
+        updatedAt: new Date().toISOString()
+      });
+
+      if (editingReferenceId === referenceId) {
+        handleCancelReferenceEdit();
+      } else {
+        setReferenceSaveStatus("success");
+        setReferenceSaveMessage("参考文献を削除しました。");
+      }
+    } catch {
+      setReferenceSaveStatus("error");
+      setReferenceSaveMessage("参考文献の削除に失敗しました。");
+    } finally {
+      setIsSavingReference(false);
     }
   };
 
@@ -623,22 +777,83 @@ const ProjectScriptSettingsPage = () => {
                     </Tooltip>
                   ) : null}
                 </Stack>
+                <SaveStatusNotice status={referenceSaveStatus} message={referenceSaveMessage} />
+                <Stack spacing={3}>
+                  <FormControl>
+                    <FormLabel>文字列</FormLabel>
+                    <Textarea
+                      value={referenceTextInput}
+                      onChange={(event) => setReferenceTextInput(event.target.value)}
+                      placeholder="参考文献の文字列を入力"
+                      minH="112px"
+                      resize="vertical"
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>URL</FormLabel>
+                    <Input
+                      value={referenceUrlInput}
+                      onChange={(event) => setReferenceUrlInput(event.target.value)}
+                      placeholder="https://example.com"
+                      type="url"
+                    />
+                  </FormControl>
+                  <Stack direction="row" justify="flex-end" spacing={3}>
+                    {editingReferenceId ? (
+                      <Button variant="ghost" onClick={handleCancelReferenceEdit} isDisabled={isSavingReference}>
+                        キャンセル
+                      </Button>
+                    ) : null}
+                    <Button colorScheme="teal" onClick={() => void handleSaveReference()} isLoading={isSavingReference}>
+                      {editingReferenceId ? "保存" : "追加"}
+                    </Button>
+                  </Stack>
+                </Stack>
                 {script.references.length === 0 ? (
                   <Text color="gray.500">まだ参考文献はありません。</Text>
                 ) : (
                   <Stack spacing={5}>
                     {script.references.map((reference) => (
-                      <Stack key={reference.id} spacing={1}>
-                        {reference.text ? (
-                          <Text color="gray.800" whiteSpace="pre-wrap" userSelect="text">
-                            {reference.text}
-                          </Text>
-                        ) : null}
-                        {reference.url ? (
-                          <Link href={reference.url} color="teal.600" isExternal wordBreak="break-all" userSelect="text">
-                            {reference.url}
-                          </Link>
-                        ) : null}
+                      <Stack key={reference.id} spacing={2}>
+                        <Stack direction="row" justify="space-between" align="flex-start" spacing={3}>
+                          <Box flex="1">
+                            {reference.text ? (
+                              <Text color="gray.800" whiteSpace="pre-wrap" userSelect="text">
+                                {reference.text}
+                              </Text>
+                            ) : null}
+                            {reference.url ? (
+                              <Link href={reference.url} color="teal.600" isExternal wordBreak="break-all" userSelect="text">
+                                {reference.url}
+                              </Link>
+                            ) : null}
+                          </Box>
+                          <Stack direction="row" spacing={1} flexShrink={0}>
+                            <Tooltip label="編集" hasArrow>
+                              <IconButton
+                                aria-label="参考文献を編集"
+                                icon={<EditIcon />}
+                                size="sm"
+                                variant="ghost"
+                                rounded="full"
+                                onClick={() => handleStartEditReference(reference)}
+                                isDisabled={isSavingReference}
+                              />
+                            </Tooltip>
+                            <Tooltip label="削除" hasArrow>
+                              <IconButton
+                                aria-label="参考文献を削除"
+                                icon={<DeleteIcon />}
+                                size="sm"
+                                variant="ghost"
+                                colorScheme="red"
+                                rounded="full"
+                                onClick={() => void handleDeleteReference(reference.id)}
+                                isDisabled={isSavingReference}
+                              />
+                            </Tooltip>
+                          </Stack>
+                        </Stack>
                       </Stack>
                     ))}
                   </Stack>
