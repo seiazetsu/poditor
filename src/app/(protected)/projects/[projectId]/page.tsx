@@ -171,6 +171,32 @@ const SCRIPT_STATUS_COLOR_SCHEMES: Record<ScriptStatus, string> = {
   recorded: "purple"
 };
 
+const ConversationModeIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={3.5}>
+    <path
+      d="M5 6h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const TextModeIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={3.5}>
+    <path
+      d="M7 5h10M7 10h10M7 15h7M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const getNextScriptStatus = (status: ScriptStatus): ScriptStatus => {
   if (status === "draft") {
     return "completed";
@@ -781,6 +807,11 @@ const ProjectDetailPage = () => {
                         >
                           <DragHandleIcon />
                         </Box>
+                        <Tooltip label={script.editorMode === "conversation" ? "会話モード" : "テキストモード"} hasArrow>
+                          <Box color={script.editorMode === "conversation" ? "blue.500" : "orange.500"} flexShrink={0}>
+                            {script.editorMode === "conversation" ? <ConversationModeIcon /> : <TextModeIcon />}
+                          </Box>
+                        </Tooltip>
                         <Text
                           fontWeight="medium"
                           noOfLines={1}
@@ -850,11 +881,11 @@ const ProjectDetailPage = () => {
                             display={canEditScripts ? "inline-flex" : "none"}
                           />
                         </Tooltip>
-                        <Tooltip label="会話作成" hasArrow>
+                        <Tooltip label="本文編集" hasArrow>
                           <IconButton
                             as={NextLink}
                             href={`/projects/${projectId}/scripts/${script.id}/compose`}
-                            aria-label="会話作成"
+                            aria-label="本文編集"
                             icon={<ComposeIcon />}
                             size="sm"
                             variant="ghost"

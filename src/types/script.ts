@@ -1,9 +1,11 @@
 export type ScriptStatus = "draft" | "completed" | "recorded";
+export type ScriptEditorMode = "conversation" | "text";
 
 export type ScriptSummary = {
   id: string;
   title: string;
   status: ScriptStatus;
+  editorMode: ScriptEditorMode;
   sortOrder?: number;
   updatedAt: string;
 };

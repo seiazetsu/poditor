@@ -34,12 +34,13 @@ import {
   disableProjectScriptPreview,
   fetchProjectScriptById,
   refreshProjectScriptPreview,
+  updateProjectScriptEditorMode,
   updateProjectScriptStatus,
   updateProjectScriptReferences,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
 import { ProjectMemberRole } from "@/types/project";
-import { ScriptDetail, ScriptReference, ScriptStatus } from "@/types/script";
+import { ScriptDetail, ScriptEditorMode, ScriptReference, ScriptStatus } from "@/types/script";
 
 const CopyIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
@@ -161,12 +162,18 @@ const SCRIPT_STATUS_OPTIONS: Array<{ value: ScriptStatus; label: string }> = [
   { value: "recorded", label: "収録済" }
 ];
 
+const SCRIPT_EDITOR_MODE_OPTIONS: Array<{ value: ScriptEditorMode; label: string }> = [
+  { value: "conversation", label: "会話モード" },
+  { value: "text", label: "テキストモード" }
+];
+
 const ProjectScriptSettingsPage = () => {
   const params = useParams<{ projectId: string; scriptId: string }>();
   const { user } = useAuth();
   const [script, setScript] = useState<ScriptDetail | null>(null);
   const [titleInput, setTitleInput] = useState("");
   const [statusInput, setStatusInput] = useState<ScriptStatus>("draft");
+  const [editorModeInput, setEditorModeInput] = useState<ScriptEditorMode>("conversation");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSafeNotFound, setIsSafeNotFound] = useState(false);
@@ -176,6 +183,9 @@ const ProjectScriptSettingsPage = () => {
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [statusSaveStatus, setStatusSaveStatus] = useState<SaveStatus>("idle");
   const [statusSaveMessage, setStatusSaveMessage] = useState<string | null>(null);
+  const [isSavingEditorMode, setIsSavingEditorMode] = useState(false);
+  const [editorModeSaveStatus, setEditorModeSaveStatus] = useState<SaveStatus>("idle");
+  const [editorModeSaveMessage, setEditorModeSaveMessage] = useState<string | null>(null);
   const [isRefreshingPreview, setIsRefreshingPreview] = useState(false);
   const [isDisablingPreview, setIsDisablingPreview] = useState(false);
   const [previewSaveStatus, setPreviewSaveStatus] = useState<SaveStatus>("idle");
@@ -223,6 +233,7 @@ const ProjectScriptSettingsPage = () => {
       setScript(scriptData);
       setTitleInput(scriptData.title);
       setStatusInput(scriptData.status);
+      setEditorModeInput(scriptData.editorMode);
     } catch {
       setErrorMessage("台本の取得に失敗しました。");
     } finally {
@@ -297,6 +308,35 @@ const ProjectScriptSettingsPage = () => {
       setStatusSaveMessage("ステータスの保存に失敗しました。");
     } finally {
       setIsSavingStatus(false);
+    }
+  };
+
+  const handleSaveEditorMode = async () => {
+    if (!script) {
+      return;
+    }
+
+    setIsSavingEditorMode(true);
+    setEditorModeSaveStatus("saving");
+    setEditorModeSaveMessage("編集モードを保存しています...");
+    setErrorMessage(null);
+
+    try {
+      await updateProjectScriptEditorMode(projectId, script.id, { editorMode: editorModeInput });
+      const nextScript = {
+        ...script,
+        editorMode: editorModeInput,
+        updatedAt: new Date().toISOString()
+      };
+
+      setScript(nextScript);
+      setEditorModeSaveStatus("success");
+      setEditorModeSaveMessage("編集モードを保存しました。");
+    } catch {
+      setEditorModeSaveStatus("error");
+      setEditorModeSaveMessage("編集モードの保存に失敗しました。");
+    } finally {
+      setIsSavingEditorMode(false);
     }
   };
 
@@ -589,7 +629,7 @@ const ProjectScriptSettingsPage = () => {
               <IconButton
                 as={NextLink}
                 href={`/projects/${projectId}/scripts/${script.id}/compose`}
-                aria-label="会話作成ページへ進む"
+                aria-label="本文編集ページへ進む"
                 icon={<ComposeIcon />}
                 colorScheme="teal"
                 rounded="full"
@@ -633,11 +673,11 @@ const ProjectScriptSettingsPage = () => {
                 </Text>
               </Stack>
             </Stack>
-            <Tooltip label="会話作成ページへ進む" hasArrow>
+            <Tooltip label="本文編集ページへ進む" hasArrow>
               <IconButton
                 as={NextLink}
                 href={`/projects/${projectId}/scripts/${script.id}/compose`}
-                aria-label="会話作成ページへ進む"
+                aria-label="本文編集ページへ進む"
                 icon={<ComposeIcon />}
                 colorScheme="teal"
                 rounded="full"
@@ -652,6 +692,7 @@ const ProjectScriptSettingsPage = () => {
                   <Heading size="md">台本基本情報</Heading>
                   <SaveStatusNotice status={titleSaveStatus} message={titleSaveMessage} />
                   <SaveStatusNotice status={statusSaveStatus} message={statusSaveMessage} />
+                  <SaveStatusNotice status={editorModeSaveStatus} message={editorModeSaveMessage} />
                   <SaveStatusNotice status={previewSaveStatus} message={previewSaveMessage} />
                   <FormControl isRequired>
                     <FormLabel>タイトル</FormLabel>
@@ -692,6 +733,32 @@ const ProjectScriptSettingsPage = () => {
                           onClick={() => void handleSaveStatus()}
                           isLoading={isSavingStatus}
                           isDisabled={statusInput === script.status}
+                          rounded="full"
+                          flexShrink={0}
+                          alignSelf={{ base: "flex-end", sm: "auto" }}
+                        />
+                      </Tooltip>
+                    </Stack>
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>編集モード</FormLabel>
+                    <Stack direction={{ base: "column", sm: "row" }} spacing={3} align={{ base: "stretch", sm: "center" }}>
+                      <Select value={editorModeInput} onChange={(event) => setEditorModeInput(event.target.value as ScriptEditorMode)}>
+                        {SCRIPT_EDITOR_MODE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <Tooltip label="編集モードを保存" hasArrow>
+                        <IconButton
+                          aria-label="編集モードを保存"
+                          icon={<SaveIcon />}
+                          colorScheme="teal"
+                          variant="outline"
+                          onClick={() => void handleSaveEditorMode()}
+                          isLoading={isSavingEditorMode}
+                          isDisabled={editorModeInput === script.editorMode}
                           rounded="full"
                           flexShrink={0}
                           alignSelf={{ base: "flex-end", sm: "auto" }}

@@ -75,6 +75,18 @@ type UpdateMediaInput = {
 
 type ReorderDialogueInput = string[];
 
+type ReplaceProjectScriptItemsInput = Array<
+  | {
+      type: "dialogue";
+      speakerId: string;
+      content: string;
+    }
+  | {
+      type: "section";
+      title: string;
+    }
+>;
+
 const toIsoDate = (value: unknown): string => {
   if (value instanceof Timestamp) {
     return value.toDate().toISOString();
@@ -547,6 +559,49 @@ export const reorderProjectScriptItems = async (
     const itemRef = doc(firestore, "projects", projectId, "scripts", scriptId, "items", itemId);
     batch.update(itemRef, {
       order: index + 1,
+      updatedAt: serverTimestamp()
+    });
+  });
+
+  await batch.commit();
+};
+
+export const replaceProjectScriptItems = async (
+  projectId: string,
+  scriptId: string,
+  items: ReplaceProjectScriptItemsInput
+): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const itemsRef = getProjectItemsCollection(projectId, scriptId);
+  const existingSnapshot = await getDocs(itemsRef);
+  const batch = writeBatch(firestore);
+
+  existingSnapshot.docs.forEach((itemDoc) => {
+    batch.delete(itemDoc.ref);
+  });
+
+  items.forEach((item, index) => {
+    const nextRef = doc(itemsRef);
+
+    if (item.type === "section") {
+      batch.set(nextRef, {
+        type: "section",
+        order: index + 1,
+        speakerId: "",
+        title: item.title.trim(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return;
+    }
+
+    batch.set(nextRef, {
+      type: "dialogue",
+      order: index + 1,
+      speakerId: item.speakerId,
+      pairId: null,
+      content: item.content.trim(),
+      createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
   });

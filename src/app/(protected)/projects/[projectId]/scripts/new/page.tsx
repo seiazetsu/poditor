@@ -13,6 +13,7 @@ import {
   FormLabel,
   Heading,
   Input,
+  Select,
   Spinner,
   Stack,
   Text
@@ -22,6 +23,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { fetchProjectByIdForUser } from "@/lib/firebase/projects";
 import { canEditProjectContent } from "@/lib/permissions/project";
 import { createProjectScript } from "@/lib/firebase/scripts";
+import { ScriptEditorMode } from "@/types/script";
 
 const ProjectScriptNewPage = () => {
   const params = useParams<{ projectId: string }>();
@@ -32,6 +34,7 @@ const ProjectScriptNewPage = () => {
   const [isLoadingRole, setIsLoadingRole] = useState(true);
   const [canCreate, setCanCreate] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [editorMode, setEditorMode] = useState<ScriptEditorMode>("conversation");
 
   const projectId = params.projectId;
 
@@ -81,7 +84,10 @@ const ProjectScriptNewPage = () => {
     setErrorMessage(null);
 
     try {
-      const scriptId = await createProjectScript(projectId, { title: trimmedTitle });
+      const scriptId = await createProjectScript(projectId, {
+        title: trimmedTitle,
+        editorMode
+      });
       router.replace(`/projects/${projectId}/scripts/${scriptId}`);
     } catch {
       setErrorMessage("台本の作成に失敗しました。時間をおいて再度お試しください。");
@@ -143,6 +149,14 @@ const ProjectScriptNewPage = () => {
                 onChange={(event) => setTitle(event.target.value)}
                 maxLength={120}
               />
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>作成モード</FormLabel>
+              <Select value={editorMode} onChange={(event) => setEditorMode(event.target.value as ScriptEditorMode)}>
+                <option value="conversation">会話モード</option>
+                <option value="text">テキストモード</option>
+              </Select>
             </FormControl>
 
             <Stack direction={{ base: "column", sm: "row" }}>

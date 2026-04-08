@@ -34,6 +34,7 @@ import {
   deleteProjectScriptItem,
   fetchProjectScriptItems,
   reorderProjectScriptItems,
+  replaceProjectScriptItems,
   updateProjectDialogueItem,
   updateProjectScriptItemSpeaker,
   updateProjectSectionItem
@@ -47,6 +48,10 @@ import {
 } from "@/lib/firebase/scripts";
 import { fetchProjectSpeakers } from "@/lib/firebase/speakers";
 import { uploadProjectScriptImage } from "@/lib/firebase/storage";
+import {
+  formatItemsAsScriptText,
+  parseScriptText
+} from "@/lib/scripts/text-mode";
 import {
   ScriptDetail,
   ScriptDialogueItem,
@@ -219,6 +224,27 @@ const ReferenceIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
     <path
       d="M8 7h8M8 12h8M8 17h5M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const HintIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M12 17v.01M9.1 9a3 3 0 1 1 4.9 2.3c-.8.65-1.6 1.3-1.6 2.7"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <path
+      d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"
       stroke="currentColor"
       strokeWidth="1.8"
       strokeLinecap="round"
@@ -498,6 +524,11 @@ const ProjectScriptComposePage = () => {
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
   const [origin, setOrigin] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState<ProjectMemberRole>("member");
+  const [textModeInput, setTextModeInput] = useState("");
+  const [textModeErrorMessage, setTextModeErrorMessage] = useState<string | null>(null);
+  const [isSavingTextMode, setIsSavingTextMode] = useState(false);
+  const [isTextModeDirty, setIsTextModeDirty] = useState(false);
+  const [hasTextModeUnsupportedItems, setHasTextModeUnsupportedItems] = useState(false);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationScrollRef = useRef<HTMLDivElement | null>(null);
   const editingDialogueTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -704,6 +735,52 @@ const ProjectScriptComposePage = () => {
 
     setScrollTargetItemId(null);
   }, [items, scrollTargetItemId]);
+
+  useEffect(() => {
+    if (!script || script.editorMode !== "text" || isTextModeDirty) {
+      return;
+    }
+
+    const { text, hasUnsupportedItems } = formatItemsAsScriptText(items, speakers);
+    setTextModeInput(text);
+    setHasTextModeUnsupportedItems(hasUnsupportedItems);
+    setTextModeErrorMessage(null);
+  }, [isTextModeDirty, items, script, speakers]);
+
+  const handleSaveTextMode = async () => {
+    if (!canEditScript || !script) {
+      return;
+    }
+
+    if (hasTextModeUnsupportedItems) {
+      setTextModeErrorMessage("画像や動画を含む台本は、現時点ではテキストモードで保存できません。");
+      return;
+    }
+
+    const parsed = parseScriptText(textModeInput, speakers);
+    if (parsed.errors.length > 0) {
+      setTextModeErrorMessage(parsed.errors.join("\n"));
+      return;
+    }
+
+    setIsSavingTextMode(true);
+    setTextModeErrorMessage(null);
+
+    try {
+      await replaceProjectScriptItems(projectId, scriptId, parsed.blocks);
+      const nextItems = await fetchProjectScriptItems(projectId, scriptId);
+      setItems(nextItems);
+      setScript({
+        ...script,
+        updatedAt: new Date().toISOString()
+      });
+      setIsTextModeDirty(false);
+    } catch {
+      setTextModeErrorMessage("テキスト台本の保存に失敗しました。");
+    } finally {
+      setIsSavingTextMode(false);
+    }
+  };
 
   const handleAddDialogue = async () => {
     if (!canEditScript) {
@@ -1589,6 +1666,167 @@ const ProjectScriptComposePage = () => {
             一覧に戻る
           </Button>
         </Stack>
+      </Box>
+    );
+  }
+
+  if (script.editorMode === "text") {
+    return (
+      <Box bg="#fbfcfe" minH="100vh">
+        <Grid templateColumns={{ base: "1fr", lg: isMemoOpen ? "minmax(0, 1fr) minmax(320px, 33vw)" : "minmax(0, 1fr)" }} minH="100vh">
+          <Box bg="white" p={{ base: 4, lg: 6 }} borderRightWidth={isMemoOpen ? "1px" : "0"}>
+            <Stack spacing={5} h="full">
+              <Stack direction="row" justify="space-between" align="flex-start">
+                <Stack direction="row" spacing={2}>
+                  <Tooltip label="基本設定へ戻る" hasArrow>
+                    <IconButton
+                      as={NextLink}
+                      href={`/projects/${projectId}/scripts/${script.id}`}
+                      aria-label="基本設定へ戻る"
+                      icon={<BackIcon />}
+                      variant="outline"
+                      rounded="full"
+                    />
+                  </Tooltip>
+                  <Tooltip label="一覧に戻る" hasArrow>
+                    <IconButton
+                      as={NextLink}
+                      href={`/projects/${projectId}`}
+                      aria-label="一覧に戻る"
+                      icon={<ListIcon />}
+                      variant="ghost"
+                      rounded="full"
+                    />
+                  </Tooltip>
+                </Stack>
+                <Stack direction="row" spacing={2}>
+                  <Tooltip
+                    hasArrow
+                    label={
+                      <Stack spacing={1} align="start">
+                        <Text fontWeight="bold">記法ルール</Text>
+                        <Text>#MC名 で会話ブロックを開始</Text>
+                        <Text>#メモ でメモを開始</Text>
+                        <Text>##セクション名 でセクションを追加</Text>
+                        <Text>次の #... または ##... 行までが本文です</Text>
+                      </Stack>
+                    }
+                  >
+                    <IconButton
+                      aria-label="テキストモードの記法"
+                      icon={<HintIcon />}
+                      variant="ghost"
+                      rounded="full"
+                    />
+                  </Tooltip>
+                  <Tooltip label={isMemoOpen ? "メモを閉じる" : "メモを開く"} hasArrow>
+                    <IconButton
+                      aria-label={isMemoOpen ? "メモを閉じる" : "メモを開く"}
+                      icon={<MemoIcon />}
+                      variant={isMemoOpen ? "solid" : "ghost"}
+                      colorScheme="teal"
+                      rounded="full"
+                      onClick={() => setIsMemoOpen((current) => !current)}
+                    />
+                  </Tooltip>
+                </Stack>
+              </Stack>
+
+              <Stack spacing={1}>
+                <Heading size="lg">{script.title}</Heading>
+                <Text color="gray.500" fontSize="sm">
+                  テキストモード
+                </Text>
+              </Stack>
+
+              {textModeErrorMessage ? (
+                <Alert status="error" rounded="md">
+                  <AlertIcon />
+                  <Text whiteSpace="pre-wrap">{textModeErrorMessage}</Text>
+                </Alert>
+              ) : null}
+
+              {hasTextModeUnsupportedItems ? (
+                <Alert status="warning" rounded="md">
+                  <AlertIcon />
+                  画像や動画を含む台本は、現時点ではテキストモードで保存できません。会話モードで編集してください。
+                </Alert>
+              ) : null}
+
+              <Box flex="1" minH="0">
+                <Textarea
+                  value={textModeInput}
+                  onChange={(event) => {
+                    setTextModeInput(event.target.value);
+                    setIsTextModeDirty(true);
+                    setTextModeErrorMessage(null);
+                  }}
+                  placeholder={"##オープニング\n\n#MC1\nこんにちは\n\n#メモ\nここにメモを書きます"}
+                  h="full"
+                  minH={{ base: "60vh", lg: "calc(100vh - 220px)" }}
+                  resize="none"
+                  fontFamily="mono"
+                  fontSize={{ base: "sm", lg: "md" }}
+                  lineHeight="tall"
+                  isReadOnly={!canEditScript}
+                />
+              </Box>
+
+              {canEditScript ? (
+                <Stack direction={{ base: "column", sm: "row" }} justify="flex-end">
+                  <Button
+                    colorScheme="teal"
+                    onClick={() => void handleSaveTextMode()}
+                    isLoading={isSavingTextMode}
+                    isDisabled={!isTextModeDirty || hasTextModeUnsupportedItems}
+                  >
+                    保存
+                  </Button>
+                </Stack>
+              ) : null}
+            </Stack>
+          </Box>
+
+          {isMemoOpen ? (
+            <Box
+              bg="white"
+              borderLeftWidth="1px"
+              p={{ base: 4, lg: 6 }}
+              overflowY="auto"
+              onTouchStart={(event) => {
+                const touch = event.touches[0];
+                memoTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+              }}
+              onTouchEnd={(event) => {
+                const touchStart = memoTouchStartRef.current;
+                const touch = event.changedTouches[0];
+                memoTouchStartRef.current = null;
+
+                if (!touchStart) {
+                  return;
+                }
+
+                const deltaX = touch.clientX - touchStart.x;
+                const deltaY = touch.clientY - touchStart.y;
+
+                if (deltaX > 60 && Math.abs(deltaY) < 40) {
+                  setIsMemoOpen(false);
+                }
+              }}
+            >
+              <Stack spacing={4}>
+                <Heading size="md">メモ</Heading>
+                <Textarea
+                  value={memoContent}
+                  onChange={(event) => setMemoContent(event.target.value)}
+                  placeholder="参考情報を自由にメモできます"
+                  minH={{ base: "60vh", lg: "calc(100vh - 120px)" }}
+                  resize="vertical"
+                />
+              </Stack>
+            </Box>
+          ) : null}
+        </Grid>
       </Box>
     );
   }

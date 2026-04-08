@@ -21,6 +21,7 @@ import { fetchProjectSpeakers } from "@/lib/firebase/speakers";
 import {
   PublicScriptPreview,
   ScriptDetail,
+  ScriptEditorMode,
   ScriptItem,
   ScriptReference,
   ScriptSpeaker,
@@ -33,6 +34,7 @@ type ScriptDocument = {
   sortOrder?: unknown;
   title?: unknown;
   status?: unknown;
+  editorMode?: unknown;
   references?: unknown;
   previewEnabled?: unknown;
   previewToken?: unknown;
@@ -60,6 +62,7 @@ type CreateScriptInput = {
 
 type CreateProjectScriptInput = {
   title: string;
+  editorMode: ScriptEditorMode;
 };
 
 type UpdateScriptTitleInput = {
@@ -72,6 +75,10 @@ type UpdateProjectScriptStatusInput = {
 
 type UpdateProjectScriptReferencesInput = {
   references: ScriptReference[];
+};
+
+type UpdateProjectScriptEditorModeInput = {
+  editorMode: ScriptEditorMode;
 };
 
 type ReorderScriptsInput = {
@@ -113,6 +120,10 @@ const toScriptStatus = (value: unknown): ScriptStatus => {
   }
 
   return "draft";
+};
+
+const toScriptEditorMode = (value: unknown): ScriptEditorMode => {
+  return value === "text" ? "text" : "conversation";
 };
 
 const toScriptReferences = (value: unknown): ScriptReference[] => {
@@ -259,6 +270,7 @@ export const fetchScriptsByOwnerUid = async (ownerUid: string): Promise<ScriptSu
 
       return {
         id: doc.id,
+        editorMode: toScriptEditorMode(data.editorMode),
         status: toScriptStatus(data.status),
         sortOrder: normalizeSortOrder(data.sortOrder, Number.MAX_SAFE_INTEGER),
         title,
@@ -303,6 +315,7 @@ export const fetchScriptsByProjectId = async (projectId: string): Promise<Script
       const data = scriptDoc.data() as ScriptDocument;
       return {
         id: scriptDoc.id,
+        editorMode: toScriptEditorMode(data.editorMode),
         status: toScriptStatus(data.status),
         sortOrder: normalizeSortOrder(data.sortOrder, Number.MAX_SAFE_INTEGER),
         title: toScriptTitle(data.title),
@@ -330,6 +343,7 @@ export const createProjectScript = async (
   const docRef = await addDoc(scriptsRef, {
     title: trimmedTitle,
     status: "draft",
+    editorMode: input.editorMode,
     sortOrder: -Date.now(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -362,6 +376,7 @@ export const fetchScriptByIdForOwner = async (
   return {
     id: snapshot.id,
     title: toScriptTitle(data.title),
+    editorMode: toScriptEditorMode(data.editorMode),
     status: toScriptStatus(data.status),
     references: toScriptReferences(data.references),
     previewEnabled: toPreviewEnabled(data.previewEnabled),
@@ -390,6 +405,7 @@ export const fetchProjectScriptById = async (
   return {
     id: snapshot.id,
     title: toScriptTitle(data.title),
+    editorMode: toScriptEditorMode(data.editorMode),
     status: toScriptStatus(data.status),
     references: toScriptReferences(data.references),
     previewEnabled: toPreviewEnabled(data.previewEnabled),
@@ -608,6 +624,20 @@ export const updateProjectScriptReferences = async (
   });
 };
 
+export const updateProjectScriptEditorMode = async (
+  projectId: string,
+  scriptId: string,
+  input: UpdateProjectScriptEditorModeInput
+): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const scriptRef = doc(firestore, "projects", projectId, "scripts", scriptId);
+
+  await updateDoc(scriptRef, {
+    editorMode: input.editorMode,
+    updatedAt: serverTimestamp()
+  });
+};
+
 export const reorderScripts = async (
   ownerUid: string,
   input: ReorderScriptsInput
@@ -709,6 +739,7 @@ export const duplicateProjectScript = async (projectId: string, scriptId: string
   batch.set(duplicatedScriptRef, {
     title: `${sourceTitle}（コピー）`,
     status: toScriptStatus(sourceData.status),
+    editorMode: toScriptEditorMode(sourceData.editorMode),
     sortOrder: -Date.now(),
     references: references.map((reference) => ({
       id: reference.id,
