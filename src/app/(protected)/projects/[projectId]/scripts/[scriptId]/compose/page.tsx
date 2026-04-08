@@ -401,7 +401,7 @@ type DisplayBlock = {
   itemIds: string[];
   section?: ScriptSectionItem;
   dialogue?: ScriptDialogueItem;
-  media?: ScriptMediaItem;
+  mediaItems: ScriptMediaItem[];
   speakerId: string;
   startIndex: number;
 };
@@ -446,23 +446,41 @@ const buildDisplayBlocks = (items: ScriptItem[]): DisplayBlock[] => {
 
   for (let index = 0; index < items.length; index += 1) {
     const currentItem = items[index];
-    const nextItem = items[index + 1];
 
-    if (
-      currentItem.type === "dialogue" &&
-      nextItem?.type === "media" &&
-      ((currentItem.pairId && currentItem.pairId === nextItem.pairId) ||
-        (!currentItem.pairId && !nextItem.pairId && currentItem.speakerId === nextItem.speakerId))
-    ) {
+    if (currentItem.type === "dialogue") {
+      const mediaItems: ScriptMediaItem[] = [];
+      let nextIndex = index + 1;
+
+      while (nextIndex < items.length) {
+        const candidate = items[nextIndex];
+        if (candidate.type !== "media") {
+          break;
+        }
+
+        const isPairedMedia =
+          (currentItem.pairId && currentItem.pairId === candidate.pairId) ||
+          (!currentItem.pairId &&
+            !candidate.pairId &&
+            mediaItems.length === 0 &&
+            candidate.speakerId === currentItem.speakerId);
+
+        if (!isPairedMedia) {
+          break;
+        }
+
+        mediaItems.push(candidate);
+        nextIndex += 1;
+      }
+
       blocks.push({
-        key: currentItem.pairId ?? `${currentItem.id}-${nextItem.id}`,
-        itemIds: [currentItem.id, nextItem.id],
+        key: currentItem.pairId ? `${currentItem.pairId}-${currentItem.id}` : currentItem.id,
+        itemIds: [currentItem.id, ...mediaItems.map((item) => item.id)],
         dialogue: currentItem,
-        media: nextItem,
+        mediaItems,
         speakerId: currentItem.speakerId,
         startIndex: index
       });
-      index += 1;
+      index = nextIndex - 1;
       continue;
     }
 
@@ -471,6 +489,7 @@ const buildDisplayBlocks = (items: ScriptItem[]): DisplayBlock[] => {
         key: currentItem.id,
         itemIds: [currentItem.id],
         section: currentItem,
+        mediaItems: [],
         speakerId: "",
         startIndex: index
       });
@@ -478,10 +497,10 @@ const buildDisplayBlocks = (items: ScriptItem[]): DisplayBlock[] => {
     }
 
     blocks.push({
-      key: currentItem.pairId ?? currentItem.id,
+      key: currentItem.pairId ? `${currentItem.pairId}-${currentItem.id}` : currentItem.id,
       itemIds: [currentItem.id],
-      dialogue: currentItem.type === "dialogue" ? currentItem : undefined,
-      media: currentItem.type === "media" ? currentItem : undefined,
+      dialogue: undefined,
+      mediaItems: [currentItem],
       speakerId: currentItem.speakerId,
       startIndex: index
     });
@@ -1524,6 +1543,7 @@ const ProjectScriptComposePage = () => {
         const speaker = isMemoBlock ? MEMO_SPEAKER : speakerMap[block.speakerId];
         const speakerName = speaker?.name ?? "話者未設定";
         const lines: string[] = [];
+        const hasMedia = block.mediaItems.length > 0;
 
         if (block.dialogue) {
           if (isMemoBlock) {
@@ -1533,7 +1553,7 @@ const ProjectScriptComposePage = () => {
           } else {
             lines.push(`${speakerName}：${block.dialogue.content}`);
           }
-        } else if (block.media) {
+        } else if (hasMedia) {
           if (isMemoBlock) {
             lines.push("*************************");
             lines.push("<メモ>");
@@ -1542,9 +1562,11 @@ const ProjectScriptComposePage = () => {
           }
         }
 
-        if (block.media?.url) {
-          lines.push(block.media.url);
-        }
+        block.mediaItems.forEach((mediaItem) => {
+          if (mediaItem.url) {
+            lines.push(mediaItem.url);
+          }
+        });
 
         if (isMemoBlock) {
           lines.push("*************************");
@@ -2799,11 +2821,10 @@ const ProjectScriptComposePage = () => {
               </Tooltip>
             ) : null}
 
-            {displayBlocks.map((block, currentIndex) => {
+       {displayBlocks.map((block, currentIndex) => {
               const blockKey = block.key;
               const section = block.section;
               const dialogue = block.dialogue;
-              const media = block.media;
               const speaker = block.speakerId === MEMO_SPEAKER_ID ? MEMO_SPEAKER : speakerMap[block.speakerId];
               const color = speaker?.color ?? "#CBD5E0";
               const name = speaker?.name ?? "話者未設定";
@@ -3043,53 +3064,57 @@ const ProjectScriptComposePage = () => {
                             </Box>
                           ) : null}
 
-                          {media ? (
+                          {block.mediaItems.length > 0 ? (
                             <Stack spacing={3}>
-                              {media.label ? (
-                                <Text fontSize={contentFontSize} color="gray.500">
-                                  {media.label}
-                                </Text>
-                              ) : null}
-                              {media.mediaType === "image" || isImageUrl(media.url) ? (
-                                <Image
-                                  src={media.url}
-                                  alt={media.label || "media"}
-                                  rounded="lg"
-                                  w={{ base: "100%", md: "400px" }}
-                                  maxW="400px"
-                                  h="auto"
-                                  objectFit="contain"
-                                  bg="white"
-                                />
-                              ) : getYouTubeThumbnailUrl(media.url) ? (
-                                <AspectRatio ratio={16 / 9} maxW="420px">
-                                  <Image
-                                    src={getYouTubeThumbnailUrl(media.url) ?? ""}
-                                    alt={media.label || "video thumbnail"}
-                                    rounded="lg"
-                                    objectFit="cover"
-                                    bg="blackAlpha.100"
-                                  />
-                                </AspectRatio>
-                              ) : isVideoUrl(media.url) ? (
-                                <AspectRatio ratio={16 / 9} maxW="420px">
-                                  <Box
-                                    as="video"
-                                    src={media.url}
-                                    rounded="lg"
-                                    muted
-                                    playsInline
-                                    preload="metadata"
-                                    bg="blackAlpha.100"
-                                  />
-                                </AspectRatio>
-                              ) : (
-                                <Box bg="white" borderWidth="1px" rounded="lg" px={4} py={3}>
-                                  <Text color="gray.700" fontSize="sm">
-                                    URL
-                                  </Text>
-                                </Box>
-                              )}
+                              {block.mediaItems.map((media) => (
+                                <Stack key={media.id} spacing={3}>
+                                  {media.label ? (
+                                    <Text fontSize={contentFontSize} color="gray.500">
+                                      {media.label}
+                                    </Text>
+                                  ) : null}
+                                  {media.mediaType === "image" || isImageUrl(media.url) ? (
+                                    <Image
+                                      src={media.url}
+                                      alt={media.label || "media"}
+                                      rounded="lg"
+                                      w={{ base: "100%", md: "400px" }}
+                                      maxW="400px"
+                                      h="auto"
+                                      objectFit="contain"
+                                      bg="white"
+                                    />
+                                  ) : getYouTubeThumbnailUrl(media.url) ? (
+                                    <AspectRatio ratio={16 / 9} maxW="420px">
+                                      <Image
+                                        src={getYouTubeThumbnailUrl(media.url) ?? ""}
+                                        alt={media.label || "video thumbnail"}
+                                        rounded="lg"
+                                        objectFit="cover"
+                                        bg="blackAlpha.100"
+                                      />
+                                    </AspectRatio>
+                                  ) : isVideoUrl(media.url) ? (
+                                    <AspectRatio ratio={16 / 9} maxW="420px">
+                                      <Box
+                                        as="video"
+                                        src={media.url}
+                                        rounded="lg"
+                                        muted
+                                        playsInline
+                                        preload="metadata"
+                                        bg="blackAlpha.100"
+                                      />
+                                    </AspectRatio>
+                                  ) : (
+                                    <Box bg="white" borderWidth="1px" rounded="lg" px={4} py={3}>
+                                      <Text color="gray.700" fontSize="sm">
+                                        URL
+                                      </Text>
+                                    </Box>
+                                  )}
+                                </Stack>
+                              ))}
                             </Stack>
                           ) : null}
                         </Stack>

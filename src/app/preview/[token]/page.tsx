@@ -162,7 +162,7 @@ type PreviewDisplayBlock = {
   key: string;
   section?: ScriptSectionItem;
   dialogue?: Extract<ScriptItem, { type: "dialogue" }>;
-  media?: ScriptMediaItem;
+  mediaItems: ScriptMediaItem[];
   speakerId: string;
 };
 
@@ -171,21 +171,38 @@ const buildDisplayBlocks = (items: ScriptItem[]): PreviewDisplayBlock[] => {
 
   for (let index = 0; index < items.length; index += 1) {
     const currentItem = items[index];
-    const nextItem = items[index + 1];
+    if (currentItem.type === "dialogue") {
+      const mediaItems: ScriptMediaItem[] = [];
+      let nextIndex = index + 1;
 
-    if (
-      currentItem.type === "dialogue" &&
-      nextItem?.type === "media" &&
-      ((currentItem.pairId && currentItem.pairId === nextItem.pairId) ||
-        (!currentItem.pairId && !nextItem.pairId && currentItem.speakerId === nextItem.speakerId))
-    ) {
+      while (nextIndex < items.length) {
+        const candidate = items[nextIndex];
+        if (candidate.type !== "media") {
+          break;
+        }
+
+        const isPairedMedia =
+          (currentItem.pairId && currentItem.pairId === candidate.pairId) ||
+          (!currentItem.pairId &&
+            !candidate.pairId &&
+            mediaItems.length === 0 &&
+            candidate.speakerId === currentItem.speakerId);
+
+        if (!isPairedMedia) {
+          break;
+        }
+
+        mediaItems.push(candidate);
+        nextIndex += 1;
+      }
+
       blocks.push({
-        key: currentItem.pairId ?? `${currentItem.id}-${nextItem.id}`,
+        key: currentItem.pairId ? `${currentItem.pairId}-${currentItem.id}` : currentItem.id,
         dialogue: currentItem,
-        media: nextItem,
+        mediaItems,
         speakerId: currentItem.speakerId
       });
-      index += 1;
+      index = nextIndex - 1;
       continue;
     }
 
@@ -193,15 +210,16 @@ const buildDisplayBlocks = (items: ScriptItem[]): PreviewDisplayBlock[] => {
       blocks.push({
         key: currentItem.id,
         section: currentItem,
+        mediaItems: [],
         speakerId: ""
       });
       continue;
     }
 
     blocks.push({
-      key: currentItem.pairId ?? currentItem.id,
-      dialogue: currentItem.type === "dialogue" ? currentItem : undefined,
-      media: currentItem.type === "media" ? currentItem : undefined,
+      key: currentItem.pairId ? `${currentItem.pairId}-${currentItem.id}` : currentItem.id,
+      dialogue: undefined,
+      mediaItems: [currentItem],
       speakerId: currentItem.speakerId
     });
   }
@@ -392,7 +410,6 @@ const PublicScriptPreviewPage = () => {
               const speaker = block.speakerId === MEMO_SPEAKER_ID ? MEMO_SPEAKER : speakerMap[block.speakerId];
               const color = speaker?.color ?? "#CBD5E0";
               const name = speaker?.name ?? "話者未設定";
-              const embeddedVideoUrl = block.media ? getVideoEmbedUrl(block.media.url) : null;
 
               return (
                 <Stack key={block.key} direction="row" spacing={3} align="stretch">
@@ -428,60 +445,68 @@ const PublicScriptPreviewPage = () => {
                       </Box>
                     ) : null}
 
-                    {block.media ? (
+                    {block.mediaItems.length > 0 ? (
                       <Stack spacing={3}>
-                        {block.media.mediaType === "image" || isImageUrl(block.media.url) ? (
-                          <Image
-                            src={block.media.url}
-                            alt={block.media.label || "media"}
-                            rounded="lg"
-                            w={{ base: "100%", md: "400px" }}
-                            maxW="400px"
-                            h="auto"
-                            objectFit="contain"
-                            bg="white"
-                          />
-                        ) : embeddedVideoUrl ? (
-                          <AspectRatio ratio={16 / 9} maxW="560px">
-                            <Box
-                              as="iframe"
-                              src={embeddedVideoUrl}
-                              title={block.media.label || "動画"}
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                              allowFullScreen
-                              rounded="lg"
-                              bg="blackAlpha.100"
-                            />
-                          </AspectRatio>
-                        ) : isVideoUrl(block.media.url) && isDirectVideoFileUrl(block.media.url) ? (
-                          <AspectRatio ratio={16 / 9} maxW="560px">
-                            <Box
-                              as="video"
-                              src={block.media.url}
-                              rounded="lg"
-                              controls
-                              playsInline
-                              preload="metadata"
-                              bg="blackAlpha.100"
-                            />
-                          </AspectRatio>
-                        ) : getYouTubeThumbnailUrl(block.media.url) ? (
-                          <AspectRatio ratio={16 / 9} maxW="560px">
-                            <Image
-                              src={getYouTubeThumbnailUrl(block.media.url) ?? ""}
-                              alt={block.media.label || "video thumbnail"}
-                              rounded="lg"
-                              objectFit="cover"
-                              bg="blackAlpha.100"
-                            />
-                          </AspectRatio>
-                        ) : (
-                          <Box bg="white" borderWidth="1px" rounded="lg" px={4} py={3}>
-                            <Text color="gray.700" fontSize="sm">
-                              メディア参照
-                            </Text>
-                          </Box>
-                        )}
+                        {block.mediaItems.map((media) => {
+                          const embeddedVideoUrl = getVideoEmbedUrl(media.url);
+
+                          return (
+                            <Stack key={media.id} spacing={3}>
+                              {media.mediaType === "image" || isImageUrl(media.url) ? (
+                                <Image
+                                  src={media.url}
+                                  alt={media.label || "media"}
+                                  rounded="lg"
+                                  w={{ base: "100%", md: "400px" }}
+                                  maxW="400px"
+                                  h="auto"
+                                  objectFit="contain"
+                                  bg="white"
+                                />
+                              ) : embeddedVideoUrl ? (
+                                <AspectRatio ratio={16 / 9} maxW="560px">
+                                  <Box
+                                    as="iframe"
+                                    src={embeddedVideoUrl}
+                                    title={media.label || "動画"}
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                    allowFullScreen
+                                    rounded="lg"
+                                    bg="blackAlpha.100"
+                                  />
+                                </AspectRatio>
+                              ) : isVideoUrl(media.url) && isDirectVideoFileUrl(media.url) ? (
+                                <AspectRatio ratio={16 / 9} maxW="560px">
+                                  <Box
+                                    as="video"
+                                    src={media.url}
+                                    rounded="lg"
+                                    controls
+                                    playsInline
+                                    preload="metadata"
+                                    bg="blackAlpha.100"
+                                  />
+                                </AspectRatio>
+                              ) : getYouTubeThumbnailUrl(media.url) ? (
+                                <AspectRatio ratio={16 / 9} maxW="560px">
+                                  <Image
+                                    src={getYouTubeThumbnailUrl(media.url) ?? ""}
+                                    alt={media.label || "video thumbnail"}
+                                    rounded="lg"
+                                    objectFit="cover"
+                                    bg="blackAlpha.100"
+                                  />
+                                </AspectRatio>
+                              ) : (
+                                <Box bg="white" borderWidth="1px" rounded="lg" px={4} py={3}>
+                                  <Text color="gray.700" fontSize="sm">
+                                    メディア参照
+                                  </Text>
+                                </Box>
+                              )}
+                            </Stack>
+                          );
+                        })}
                       </Stack>
                     ) : null}
                   </Stack>
