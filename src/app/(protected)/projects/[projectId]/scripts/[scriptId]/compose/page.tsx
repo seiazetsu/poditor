@@ -1759,7 +1759,7 @@ const ProjectScriptComposePage = () => {
         <Grid templateColumns={{ base: "1fr", lg: isMemoOpen ? "minmax(0, 1fr) minmax(320px, 33vw)" : "minmax(0, 1fr)" }} minH="100vh">
           <Box bg="white" p={{ base: 4, lg: 6 }} borderRightWidth={isMemoOpen ? "1px" : "0"} position="relative">
             <Stack spacing={5} h="full">
-              <Stack direction="row" justify="space-between" align="flex-start">
+              <Stack direction="row" justify="space-between" align="center">
                 <Stack direction="row" spacing={2}>
                   <Tooltip label="一覧に戻る" hasArrow>
                     <IconButton
@@ -1779,12 +1779,10 @@ const ProjectScriptComposePage = () => {
                       icon={<BackIcon />}
                       variant="outline"
                       rounded="full"
+                      display={canEditScript ? "inline-flex" : "none"}
                     />
                   </Tooltip>
                 </Stack>
-              </Stack>
-
-              <Stack spacing={1}>
                 <Stack direction="row" spacing={2}>
                   <Tooltip label="会話モード" hasArrow>
                     <IconButton
@@ -1810,6 +1808,9 @@ const ProjectScriptComposePage = () => {
                     />
                   </Tooltip>
                 </Stack>
+              </Stack>
+
+              <Stack spacing={1}>
                 <Text color="gray.700" fontSize="sm" fontWeight="bold" noOfLines={2}>
                   {script.title}
                 </Text>
@@ -2248,7 +2249,7 @@ const ProjectScriptComposePage = () => {
         >
           <Stack spacing={5}>
             <Stack spacing={2}>
-              <Stack direction="row" spacing={2} justify="space-between" align="center" display={{ base: "none", lg: "flex" }}>
+              <Stack direction="row" spacing={2} justify="space-between" align="center">
                 <Stack direction="row" spacing={2}>
                   <Tooltip label="一覧に戻る" hasArrow>
                     <IconButton
@@ -2268,11 +2269,10 @@ const ProjectScriptComposePage = () => {
                       icon={<BackIcon />}
                       variant="outline"
                       rounded="full"
+                      display={canEditScript ? "inline-flex" : "none"}
                     />
                   </Tooltip>
                 </Stack>
-              </Stack>
-              <Stack spacing={1}>
                 <Stack direction="row" spacing={2}>
                   <Tooltip label="会話モード" hasArrow>
                     <IconButton
@@ -2298,6 +2298,8 @@ const ProjectScriptComposePage = () => {
                     />
                   </Tooltip>
                 </Stack>
+              </Stack>
+              <Stack spacing={1}>
                 <Text color="gray.700" fontSize="sm" fontWeight="bold" noOfLines={2}>
                   {script.title}
                 </Text>
@@ -2575,45 +2577,6 @@ const ProjectScriptComposePage = () => {
             }
           }}
         >
-          <Box
-            position="fixed"
-            top={4}
-            left={4}
-            zIndex={30}
-            display={{ base: "block", lg: "none" }}
-            sx={{
-              "@media print": {
-                display: "none"
-              }
-            }}
-          >
-            <Stack direction="row" spacing={2}>
-              <Tooltip label="一覧に戻る" hasArrow>
-                <IconButton
-                  as={NextLink}
-                  href={`/projects/${projectId}`}
-                  aria-label="一覧に戻る"
-                  icon={<ListIcon />}
-                  variant="ghost"
-                  rounded="full"
-                  bg="whiteAlpha.900"
-                />
-              </Tooltip>
-              <Tooltip label="基本設定へ戻る" hasArrow>
-                <IconButton
-                  as={NextLink}
-                  href={`/projects/${projectId}/scripts/${script.id}`}
-                  aria-label="基本設定へ戻る"
-                  icon={<BackIcon />}
-                  variant="outline"
-                  rounded="full"
-                  bg="whiteAlpha.900"
-                  display={canEditScript ? "inline-flex" : "none"}
-                />
-              </Tooltip>
-            </Stack>
-          </Box>
-
           <Box
             position="fixed"
             top={{ base: 4, lg: 6 }}
