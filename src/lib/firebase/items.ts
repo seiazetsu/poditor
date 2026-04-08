@@ -85,6 +85,11 @@ type ReplaceProjectScriptItemsInput = Array<
       type: "section";
       title: string;
     }
+  | {
+      type: "media";
+      mediaType: ScriptMediaType;
+      url: string;
+    }
 >;
 
 const toIsoDate = (value: unknown): string => {
@@ -580,10 +585,15 @@ export const replaceProjectScriptItems = async (
     batch.delete(itemDoc.ref);
   });
 
+  let currentPairId: string | null = null;
+  let currentSpeakerId = "";
+
   items.forEach((item, index) => {
     const nextRef = doc(itemsRef);
 
     if (item.type === "section") {
+      currentPairId = null;
+      currentSpeakerId = "";
       batch.set(nextRef, {
         type: "section",
         order: index + 1,
@@ -595,11 +605,29 @@ export const replaceProjectScriptItems = async (
       return;
     }
 
+    if (item.type === "media") {
+      batch.set(nextRef, {
+        type: "media",
+        order: index + 1,
+        speakerId: currentSpeakerId,
+        pairId: currentPairId,
+        mediaType: item.mediaType,
+        label: "",
+        url: item.url.trim(),
+        note: "",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return;
+    }
+
+    currentPairId = `text-pair-${index + 1}`;
+    currentSpeakerId = item.speakerId;
     batch.set(nextRef, {
       type: "dialogue",
       order: index + 1,
       speakerId: item.speakerId,
-      pairId: null,
+      pairId: currentPairId,
       content: item.content.trim(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()

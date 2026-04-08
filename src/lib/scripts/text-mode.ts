@@ -2,6 +2,8 @@ import { ScriptItem, ScriptSpeaker } from "@/types/script";
 
 export const TEXT_MODE_MEMO_MARKER = "メモ";
 export const MEMO_SPEAKER_ID = "__memo__";
+const IMAGE_MARKER = "[画像]";
+const URL_MARKER = "[URL]";
 
 export type TextModeBlockInput =
   | {
@@ -12,6 +14,11 @@ export type TextModeBlockInput =
   | {
       type: "section";
       title: string;
+    }
+  | {
+      type: "media";
+      mediaType: "image" | "video";
+      url: string;
     };
 
 export type ParseScriptTextResult = {
@@ -21,6 +28,15 @@ export type ParseScriptTextResult = {
 
 const stripOuterBlankLines = (value: string): string => {
   return value.replace(/^\n+/, "").replace(/\n+$/, "");
+};
+
+const isValidUrl = (value: string): boolean => {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const finalizeBlock = (
@@ -65,6 +81,40 @@ const finalizeBlock = (
   });
 };
 
+const finalizeMediaBlock = (
+  marker: "image" | "video" | "",
+  bodyLines: string[],
+  errors: string[],
+  blocks: TextModeBlockInput[]
+) => {
+  const body = stripOuterBlankLines(bodyLines.join("\n")).trim();
+  if (!marker) {
+    return;
+  }
+
+  if (!body) {
+    errors.push(`${marker === "image" ? IMAGE_MARKER : URL_MARKER} のURLを入力してください。`);
+    return;
+  }
+
+  if (!isValidUrl(body)) {
+    errors.push(`${marker === "image" ? IMAGE_MARKER : URL_MARKER} のURL形式が不正です。`);
+    return;
+  }
+
+  const previousBlock = blocks[blocks.length - 1];
+  if (!previousBlock || previousBlock.type === "section") {
+    errors.push(`${marker === "image" ? IMAGE_MARKER : URL_MARKER} は直前のセリフまたはメモに続けて指定してください。`);
+    return;
+  }
+
+  blocks.push({
+    type: "media",
+    mediaType: marker,
+    url: body
+  });
+};
+
 export const parseScriptText = (
   value: string,
   speakers: ScriptSpeaker[]
@@ -74,12 +124,24 @@ export const parseScriptText = (
   const errors: string[] = [];
   const blocks: TextModeBlockInput[] = [];
   let currentMarker = "";
+  let currentMediaMarker: "image" | "video" | "" = "";
   let currentBodyLines: string[] = [];
 
   lines.forEach((line) => {
+    if (line === IMAGE_MARKER || line === URL_MARKER) {
+      finalizeBlock(currentMarker, currentBodyLines, speakers, errors, blocks);
+      finalizeMediaBlock(currentMediaMarker, currentBodyLines, errors, blocks);
+      currentMarker = "";
+      currentMediaMarker = line === IMAGE_MARKER ? "image" : "video";
+      currentBodyLines = [];
+      return;
+    }
+
     if (line.startsWith("##")) {
       finalizeBlock(currentMarker, currentBodyLines, speakers, errors, blocks);
+      finalizeMediaBlock(currentMediaMarker, currentBodyLines, errors, blocks);
       currentMarker = "";
+      currentMediaMarker = "";
       currentBodyLines = [];
 
       const title = line.slice(2).trim();
@@ -97,7 +159,9 @@ export const parseScriptText = (
 
     if (line.startsWith("#")) {
       finalizeBlock(currentMarker, currentBodyLines, speakers, errors, blocks);
+      finalizeMediaBlock(currentMediaMarker, currentBodyLines, errors, blocks);
       currentMarker = line.slice(1).trim();
+      currentMediaMarker = "";
       currentBodyLines = [];
       return;
     }
@@ -106,6 +170,7 @@ export const parseScriptText = (
   });
 
   finalizeBlock(currentMarker, currentBodyLines, speakers, errors, blocks);
+  finalizeMediaBlock(currentMediaMarker, currentBodyLines, errors, blocks);
 
   return {
     blocks,
@@ -126,8 +191,7 @@ export const formatItemsAsScriptText = (
     }
 
     if (item.type === "media") {
-      hasUnsupportedItems = true;
-      return [];
+      return [item.mediaType === "image" ? `${IMAGE_MARKER}\n${item.url}` : `${URL_MARKER}\n${item.url}`];
     }
 
     const marker = item.speakerId === MEMO_SPEAKER_ID

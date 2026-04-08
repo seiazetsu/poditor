@@ -44,6 +44,7 @@ import { canEditProjectContent } from "@/lib/permissions/project";
 import {
   fetchProjectScriptById,
   refreshProjectScriptPreview,
+  updateProjectScriptEditorMode,
   updateProjectScriptReferences
 } from "@/lib/firebase/scripts";
 import { fetchProjectSpeakers } from "@/lib/firebase/speakers";
@@ -164,6 +165,19 @@ const ComposerIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
     <path
       d="M5 6h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const TextModeIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M7 5h10M7 10h10M7 15h7M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
       stroke="currentColor"
       strokeWidth="1.8"
       strokeLinecap="round"
@@ -528,7 +542,7 @@ const ProjectScriptComposePage = () => {
   const [textModeErrorMessage, setTextModeErrorMessage] = useState<string | null>(null);
   const [isSavingTextMode, setIsSavingTextMode] = useState(false);
   const [isTextModeDirty, setIsTextModeDirty] = useState(false);
-  const [hasTextModeUnsupportedItems, setHasTextModeUnsupportedItems] = useState(false);
+  const [isSwitchingEditorMode, setIsSwitchingEditorMode] = useState(false);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationScrollRef = useRef<HTMLDivElement | null>(null);
   const editingDialogueTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -741,19 +755,13 @@ const ProjectScriptComposePage = () => {
       return;
     }
 
-    const { text, hasUnsupportedItems } = formatItemsAsScriptText(items, speakers);
+    const { text } = formatItemsAsScriptText(items, speakers);
     setTextModeInput(text);
-    setHasTextModeUnsupportedItems(hasUnsupportedItems);
     setTextModeErrorMessage(null);
   }, [isTextModeDirty, items, script, speakers]);
 
   const handleSaveTextMode = async () => {
     if (!canEditScript || !script) {
-      return;
-    }
-
-    if (hasTextModeUnsupportedItems) {
-      setTextModeErrorMessage("画像や動画を含む台本は、現時点ではテキストモードで保存できません。");
       return;
     }
 
@@ -780,6 +788,66 @@ const ProjectScriptComposePage = () => {
     } finally {
       setIsSavingTextMode(false);
     }
+  };
+
+  const handleSwitchEditorMode = async (nextMode: "conversation" | "text") => {
+    if (!canEditScript || !script || script.editorMode === nextMode) {
+      return;
+    }
+
+    if (script.editorMode === "text" && isTextModeDirty) {
+      const confirmed = window.confirm("未保存のテキスト変更は破棄されます。切り替えますか？");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setIsSwitchingEditorMode(true);
+    setActionErrorMessage(null);
+    setTextModeErrorMessage(null);
+
+    try {
+      await updateProjectScriptEditorMode(projectId, script.id, { editorMode: nextMode });
+      const nextScript = {
+        ...script,
+        editorMode: nextMode,
+        updatedAt: new Date().toISOString()
+      };
+
+      setScript(nextScript);
+
+      if (nextMode === "text") {
+        const { text } = formatItemsAsScriptText(items, speakers);
+        setTextModeInput(text);
+        setIsTextModeDirty(false);
+      }
+    } catch {
+      if (nextMode === "text") {
+        setTextModeErrorMessage("テキストモードへの切り替えに失敗しました。");
+      } else {
+        setActionErrorMessage("会話モードへの切り替えに失敗しました。");
+      }
+    } finally {
+      setIsSwitchingEditorMode(false);
+    }
+  };
+
+  const handleExportTextMode = () => {
+    if (typeof window === "undefined" || !script) {
+      return;
+    }
+
+    const blob = new Blob([textModeInput], { type: "text/plain;charset=utf-8" });
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeTitle = script.title.trim().length > 0 ? script.title.trim() : "script";
+
+    link.href = objectUrl;
+    link.download = `${safeTitle}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(objectUrl);
   };
 
   const handleAddDialogue = async () => {
@@ -1673,21 +1741,26 @@ const ProjectScriptComposePage = () => {
   if (script.editorMode === "text") {
     return (
       <Box bg="#fbfcfe" minH="100vh">
+        <style>
+          {`
+            @media print {
+              [data-text-mode-controls="true"],
+              [data-text-mode-reference-panel="true"],
+              [data-text-mode-edit-area="true"] {
+                display: none !important;
+              }
+
+              [data-text-mode-print-content="true"] {
+                display: block !important;
+              }
+            }
+          `}
+        </style>
         <Grid templateColumns={{ base: "1fr", lg: isMemoOpen ? "minmax(0, 1fr) minmax(320px, 33vw)" : "minmax(0, 1fr)" }} minH="100vh">
-          <Box bg="white" p={{ base: 4, lg: 6 }} borderRightWidth={isMemoOpen ? "1px" : "0"}>
+          <Box bg="white" p={{ base: 4, lg: 6 }} borderRightWidth={isMemoOpen ? "1px" : "0"} position="relative">
             <Stack spacing={5} h="full">
               <Stack direction="row" justify="space-between" align="flex-start">
                 <Stack direction="row" spacing={2}>
-                  <Tooltip label="基本設定へ戻る" hasArrow>
-                    <IconButton
-                      as={NextLink}
-                      href={`/projects/${projectId}/scripts/${script.id}`}
-                      aria-label="基本設定へ戻る"
-                      icon={<BackIcon />}
-                      variant="outline"
-                      rounded="full"
-                    />
-                  </Tooltip>
                   <Tooltip label="一覧に戻る" hasArrow>
                     <IconButton
                       as={NextLink}
@@ -1698,44 +1771,47 @@ const ProjectScriptComposePage = () => {
                       rounded="full"
                     />
                   </Tooltip>
-                </Stack>
-                <Stack direction="row" spacing={2}>
-                  <Tooltip
-                    hasArrow
-                    label={
-                      <Stack spacing={1} align="start">
-                        <Text fontWeight="bold">記法ルール</Text>
-                        <Text>#MC名 で会話ブロックを開始</Text>
-                        <Text>#メモ でメモを開始</Text>
-                        <Text>##セクション名 でセクションを追加</Text>
-                        <Text>次の #... または ##... 行までが本文です</Text>
-                      </Stack>
-                    }
-                  >
+                  <Tooltip label="基本設定へ戻る" hasArrow>
                     <IconButton
-                      aria-label="テキストモードの記法"
-                      icon={<HintIcon />}
-                      variant="ghost"
+                      as={NextLink}
+                      href={`/projects/${projectId}/scripts/${script.id}`}
+                      aria-label="基本設定へ戻る"
+                      icon={<BackIcon />}
+                      variant="outline"
                       rounded="full"
-                    />
-                  </Tooltip>
-                  <Tooltip label={isMemoOpen ? "メモを閉じる" : "メモを開く"} hasArrow>
-                    <IconButton
-                      aria-label={isMemoOpen ? "メモを閉じる" : "メモを開く"}
-                      icon={<MemoIcon />}
-                      variant={isMemoOpen ? "solid" : "ghost"}
-                      colorScheme="teal"
-                      rounded="full"
-                      onClick={() => setIsMemoOpen((current) => !current)}
                     />
                   </Tooltip>
                 </Stack>
               </Stack>
 
               <Stack spacing={1}>
-                <Heading size="lg">{script.title}</Heading>
-                <Text color="gray.500" fontSize="sm">
-                  テキストモード
+                <Stack direction="row" spacing={2}>
+                  <Tooltip label="会話モード" hasArrow>
+                    <IconButton
+                      aria-label="会話モードへ切り替える"
+                      icon={<ComposerIcon />}
+                      size="sm"
+                      rounded="full"
+                      variant="ghost"
+                      colorScheme="gray"
+                      onClick={() => void handleSwitchEditorMode("conversation")}
+                      isLoading={isSwitchingEditorMode}
+                    />
+                  </Tooltip>
+                  <Tooltip label="テキストモード" hasArrow>
+                    <IconButton
+                      aria-label="テキストモードへ切り替える"
+                      icon={<TextModeIcon />}
+                      size="sm"
+                      rounded="full"
+                      variant="solid"
+                      colorScheme="teal"
+                      isDisabled
+                    />
+                  </Tooltip>
+                </Stack>
+                <Text color="gray.700" fontSize="sm" fontWeight="bold" noOfLines={2}>
+                  {script.title}
                 </Text>
               </Stack>
 
@@ -1746,14 +1822,7 @@ const ProjectScriptComposePage = () => {
                 </Alert>
               ) : null}
 
-              {hasTextModeUnsupportedItems ? (
-                <Alert status="warning" rounded="md">
-                  <AlertIcon />
-                  画像や動画を含む台本は、現時点ではテキストモードで保存できません。会話モードで編集してください。
-                </Alert>
-              ) : null}
-
-              <Box flex="1" minH="0">
+              <Box flex="1" minH="0" data-text-mode-edit-area="true">
                 <Textarea
                   value={textModeInput}
                   onChange={(event) => {
@@ -1761,30 +1830,308 @@ const ProjectScriptComposePage = () => {
                     setIsTextModeDirty(true);
                     setTextModeErrorMessage(null);
                   }}
-                  placeholder={"##オープニング\n\n#MC1\nこんにちは\n\n#メモ\nここにメモを書きます"}
+                  placeholder={"##オープニング\n\n#MC1\nこんにちは\n\n[画像]\nhttps://example.com/image.webp\n\n#メモ\nここにメモを書きます"}
                   h="full"
                   minH={{ base: "60vh", lg: "calc(100vh - 220px)" }}
                   resize="none"
                   fontFamily="mono"
-                  fontSize={{ base: "sm", lg: "md" }}
+                  fontSize={FONT_SIZE_OPTIONS[fontSizeIndex]}
                   lineHeight="tall"
                   isReadOnly={!canEditScript}
                 />
               </Box>
 
+              <Box
+                display="none"
+                data-text-mode-print-content="true"
+                whiteSpace="pre-wrap"
+                fontSize={FONT_SIZE_OPTIONS[fontSizeIndex]}
+                lineHeight="tall"
+              >
+                {textModeInput}
+              </Box>
+
               {canEditScript ? (
-                <Stack direction={{ base: "column", sm: "row" }} justify="flex-end">
+                <Stack direction={{ base: "column", sm: "row" }} justify="flex-start" align="flex-start">
                   <Button
                     colorScheme="teal"
                     onClick={() => void handleSaveTextMode()}
                     isLoading={isSavingTextMode}
-                    isDisabled={!isTextModeDirty || hasTextModeUnsupportedItems}
+                    isDisabled={!isTextModeDirty}
                   >
                     保存
                   </Button>
                 </Stack>
               ) : null}
             </Stack>
+
+            <Box
+              position="fixed"
+              top={{ base: 4, lg: 6 }}
+              right={{ base: 4, lg: rightFloatingOffset }}
+              zIndex={20}
+              data-text-mode-controls="true"
+              sx={{
+                "@media print": {
+                  display: "none"
+                }
+              }}
+            >
+              <Stack spacing={2} align="flex-end">
+                <Tooltip
+                  hasArrow
+                  placement="left"
+                  label={
+                    <Stack spacing={1} align="start">
+                      <Text fontWeight="bold">記法ルール</Text>
+                      <Text>#MC名 で会話ブロックを開始</Text>
+                      <Text>#メモ でメモを開始</Text>
+                      <Text>##セクション名 でセクションを追加</Text>
+                      <Text>[画像] の次の行に画像URLを記述</Text>
+                      <Text>[URL] の次の行にURLを記述</Text>
+                      <Text>次の #... / ##... / [画像] / [URL] が来るまでを同じ本文として扱います</Text>
+                    </Stack>
+                  }
+                >
+                  <IconButton
+                    aria-label="テキストモードの記法"
+                    icon={<HintIcon />}
+                    variant="ghost"
+                    rounded="full"
+                    bg="whiteAlpha.900"
+                    boxShadow="md"
+                    _hover={{ bg: "white" }}
+                  />
+                </Tooltip>
+
+                <Tooltip label={isMemoOpen ? "メモを閉じる" : "メモを開く"} hasArrow placement="left">
+                  <IconButton
+                    aria-label={isMemoOpen ? "メモを閉じる" : "メモを開く"}
+                    icon={<MemoIcon />}
+                    variant={isMemoOpen ? "solid" : "ghost"}
+                    colorScheme="teal"
+                    rounded="full"
+                    bg={isMemoOpen ? "teal.500" : "whiteAlpha.900"}
+                    color={isMemoOpen ? "white" : undefined}
+                    boxShadow="md"
+                    _hover={{ bg: isMemoOpen ? "teal.600" : "white" }}
+                    onClick={() => setIsMemoOpen((current) => !current)}
+                  />
+                </Tooltip>
+              </Stack>
+            </Box>
+
+            <Box
+              position="fixed"
+              top="50%"
+              right={{ base: 4, lg: rightFloatingOffset }}
+              transform="translateY(-50%)"
+              zIndex={20}
+              data-text-mode-controls="true"
+              sx={{
+                "@media print": {
+                  display: "none"
+                }
+              }}
+            >
+              <Stack
+                spacing={1}
+                bg="whiteAlpha.950"
+                borderWidth="1px"
+                borderColor="gray.100"
+                rounded="full"
+                p={1}
+                boxShadow="lg"
+              >
+                {isReferencesOpen ? (
+                  <Box
+                    w={{ base: "calc(100vw - 1rem)", lg: "320px" }}
+                    bg="white"
+                    borderWidth="1px"
+                    rounded="xl"
+                    boxShadow="lg"
+                    p={4}
+                    data-text-mode-reference-panel="true"
+                    onTouchStart={(event) => handlePanelTouchStart(event, referencesTouchStartRef)}
+                    onTouchEnd={(event) =>
+                      handlePanelTouchEnd(event, referencesTouchStartRef, () => {
+                        setIsReferencesOpen(false);
+                        handleCancelReferenceEdit();
+                      })
+                    }
+                  >
+                    <Stack spacing={3}>
+                      <Input
+                        placeholder="参考文献名"
+                        value={referenceTextInput}
+                        onChange={(event) => setReferenceTextInput(event.target.value)}
+                      />
+                      <Input
+                        placeholder="URL"
+                        value={referenceUrlInput}
+                        onChange={(event) => setReferenceUrlInput(event.target.value)}
+                      />
+                      {script.references.length > 0 ? (
+                        <Box maxH="180px" overflowY="auto" borderWidth="1px" rounded="md" px={3} py={2}>
+                          <Stack spacing={2}>
+                            {script.references.map((reference) => (
+                              <Stack key={reference.id} direction="row" justify="space-between" align="start" spacing={3}>
+                                <Box flex="1 1 auto" minW="0">
+                                  {reference.text ? (
+                                    <Text fontSize="sm" color="gray.800">
+                                      {reference.text}
+                                    </Text>
+                                  ) : null}
+                                  {reference.url ? (
+                                    <Link href={reference.url} color="teal.600" isExternal fontSize="sm" wordBreak="break-all">
+                                      {reference.url}
+                                    </Link>
+                                  ) : null}
+                                </Box>
+                                <Stack direction="row" spacing={1}>
+                                  <Tooltip label="編集" hasArrow>
+                                    <IconButton
+                                      aria-label="参考文献を編集"
+                                      size="xs"
+                                      icon={<EditIcon />}
+                                      variant="ghost"
+                                      rounded="full"
+                                      onClick={() => handleStartEditReference(reference)}
+                                      isDisabled={isSavingReference || !canEditScript}
+                                    />
+                                  </Tooltip>
+                                  <Tooltip label="削除" hasArrow>
+                                    <IconButton
+                                      aria-label="参考文献を削除"
+                                      size="xs"
+                                      icon={<DeleteIcon />}
+                                      variant="ghost"
+                                      colorScheme="red"
+                                      rounded="full"
+                                      onClick={() => void handleDeleteReference(reference.id)}
+                                      isDisabled={isSavingReference || !canEditScript}
+                                    />
+                                  </Tooltip>
+                                </Stack>
+                              </Stack>
+                            ))}
+                          </Stack>
+                        </Box>
+                      ) : null}
+                      {canEditScript ? (
+                        <Stack direction="row" justify="flex-end">
+                          {editingReferenceId ? (
+                            <Button variant="ghost" onClick={handleCancelReferenceEdit} isDisabled={isSavingReference}>
+                              キャンセル
+                            </Button>
+                          ) : null}
+                          <Button colorScheme="teal" onClick={() => void handleAddReference()} isLoading={isSavingReference}>
+                            {editingReferenceId ? "保存" : "登録"}
+                          </Button>
+                        </Stack>
+                      ) : null}
+                    </Stack>
+                  </Box>
+                ) : null}
+
+                <Tooltip label="共有プレビューを開く" hasArrow>
+                  <IconButton
+                    aria-label="共有プレビューを開く"
+                    icon={<PreviewIcon />}
+                    variant="ghost"
+                    rounded="full"
+                    onClick={() => {
+                      if (isTextModeDirty) {
+                        setTextModeErrorMessage("共有プレビューを開く前に保存してください。");
+                        return;
+                      }
+                      void handleOpenPreview();
+                    }}
+                    isLoading={isOpeningPreview}
+                  />
+                </Tooltip>
+
+                <Tooltip label="テキストを印刷" hasArrow>
+                  <IconButton
+                    aria-label="テキストを印刷"
+                    icon={<PrintIcon />}
+                    variant="ghost"
+                    rounded="full"
+                    onClick={handlePrintConversation}
+                  />
+                </Tooltip>
+
+                <Tooltip label="テキストを書き出す" hasArrow>
+                  <IconButton
+                    aria-label="テキストを書き出す"
+                    icon={<ExportIcon />}
+                    variant="ghost"
+                    rounded="full"
+                    onClick={handleExportTextMode}
+                  />
+                </Tooltip>
+
+                <Tooltip label="文字を小さくする" hasArrow>
+                  <IconButton
+                    aria-label="文字を小さくする"
+                    icon={<TextSmallerIcon />}
+                    variant="ghost"
+                    rounded="full"
+                    onClick={() => setFontSizeIndex((current) => Math.max(0, current - 1))}
+                    isDisabled={fontSizeIndex === 0}
+                  />
+                </Tooltip>
+
+                <Tooltip label="文字を大きくする" hasArrow>
+                  <IconButton
+                    aria-label="文字を大きくする"
+                    icon={<TextLargerIcon />}
+                    variant="ghost"
+                    rounded="full"
+                    onClick={() => setFontSizeIndex((current) => Math.min(FONT_SIZE_OPTIONS.length - 1, current + 1))}
+                    isDisabled={fontSizeIndex === FONT_SIZE_OPTIONS.length - 1}
+                  />
+                </Tooltip>
+              </Stack>
+            </Box>
+
+            <Box
+              position="fixed"
+              bottom={{ base: 4, lg: 6 }}
+              right={{ base: 4, lg: rightFloatingOffset }}
+              zIndex={20}
+              data-text-mode-controls="true"
+              sx={{
+                "@media print": {
+                  display: "none"
+                }
+              }}
+            >
+              <Stack spacing={3} align="flex-end">
+                <Tooltip label={isReferencesOpen ? "参考文献登録を閉じる" : "参考文献登録を開く"} hasArrow placement="left">
+                  <IconButton
+                    aria-label={isReferencesOpen ? "参考文献登録を閉じる" : "参考文献登録を開く"}
+                    icon={<ReferenceIcon />}
+                    variant={isReferencesOpen ? "solid" : "ghost"}
+                    colorScheme="teal"
+                    rounded="full"
+                    bg={isReferencesOpen ? "teal.500" : "whiteAlpha.900"}
+                    color={isReferencesOpen ? "white" : undefined}
+                    boxShadow="md"
+                    _hover={{ bg: isReferencesOpen ? "teal.600" : "white" }}
+                    onClick={() =>
+                      setIsReferencesOpen((current) => {
+                        const next = !current;
+                        if (!next) {
+                          handleCancelReferenceEdit();
+                        }
+                        return next;
+                      })
+                    }
+                  />
+                </Tooltip>
+              </Stack>
+            </Box>
           </Box>
 
           {isMemoOpen ? (
@@ -1903,16 +2250,6 @@ const ProjectScriptComposePage = () => {
             <Stack spacing={2}>
               <Stack direction="row" spacing={2} justify="space-between" align="center" display={{ base: "none", lg: "flex" }}>
                 <Stack direction="row" spacing={2}>
-                  <Tooltip label="基本設定へ戻る" hasArrow>
-                    <IconButton
-                      as={NextLink}
-                      href={`/projects/${projectId}/scripts/${script.id}`}
-                      aria-label="基本設定へ戻る"
-                      icon={<BackIcon />}
-                      variant="outline"
-                      rounded="full"
-                    />
-                  </Tooltip>
                   <Tooltip label="一覧に戻る" hasArrow>
                     <IconButton
                       as={NextLink}
@@ -1923,11 +2260,48 @@ const ProjectScriptComposePage = () => {
                       rounded="full"
                     />
                   </Tooltip>
+                  <Tooltip label="基本設定へ戻る" hasArrow>
+                    <IconButton
+                      as={NextLink}
+                      href={`/projects/${projectId}/scripts/${script.id}`}
+                      aria-label="基本設定へ戻る"
+                      icon={<BackIcon />}
+                      variant="outline"
+                      rounded="full"
+                    />
+                  </Tooltip>
                 </Stack>
               </Stack>
-              <Text color="gray.700" fontSize="sm" noOfLines={2}>
-                {script.title}
-              </Text>
+              <Stack spacing={1}>
+                <Stack direction="row" spacing={2}>
+                  <Tooltip label="会話モード" hasArrow>
+                    <IconButton
+                      aria-label="会話モードへ切り替える"
+                      icon={<ComposerIcon />}
+                      size="sm"
+                      rounded="full"
+                      variant="solid"
+                      colorScheme="teal"
+                      isDisabled
+                    />
+                  </Tooltip>
+                  <Tooltip label="テキストモード" hasArrow>
+                    <IconButton
+                      aria-label="テキストモードへ切り替える"
+                      icon={<TextModeIcon />}
+                      size="sm"
+                      rounded="full"
+                      variant="ghost"
+                      colorScheme="gray"
+                      onClick={() => void handleSwitchEditorMode("text")}
+                      isLoading={isSwitchingEditorMode}
+                    />
+                  </Tooltip>
+                </Stack>
+                <Text color="gray.700" fontSize="sm" fontWeight="bold" noOfLines={2}>
+                  {script.title}
+                </Text>
+              </Stack>
               <Text color="gray.500" fontSize="xs">
                 想定時間: {estimatedDurationLabel}
               </Text>
@@ -2214,6 +2588,17 @@ const ProjectScriptComposePage = () => {
             }}
           >
             <Stack direction="row" spacing={2}>
+              <Tooltip label="一覧に戻る" hasArrow>
+                <IconButton
+                  as={NextLink}
+                  href={`/projects/${projectId}`}
+                  aria-label="一覧に戻る"
+                  icon={<ListIcon />}
+                  variant="ghost"
+                  rounded="full"
+                  bg="whiteAlpha.900"
+                />
+              </Tooltip>
               <Tooltip label="基本設定へ戻る" hasArrow>
                 <IconButton
                   as={NextLink}
@@ -2224,17 +2609,6 @@ const ProjectScriptComposePage = () => {
                   rounded="full"
                   bg="whiteAlpha.900"
                   display={canEditScript ? "inline-flex" : "none"}
-                />
-              </Tooltip>
-              <Tooltip label="一覧に戻る" hasArrow>
-                <IconButton
-                  as={NextLink}
-                  href={`/projects/${projectId}`}
-                  aria-label="一覧に戻る"
-                  icon={<ListIcon />}
-                  variant="ghost"
-                  rounded="full"
-                  bg="whiteAlpha.900"
                 />
               </Tooltip>
             </Stack>
