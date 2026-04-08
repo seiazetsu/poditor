@@ -549,6 +549,7 @@ const ProjectScriptComposePage = () => {
   const [isMemoOpen, setIsMemoOpen] = useState(false);
   const [isMobileComposerOpen, setIsMobileComposerOpen] = useState(false);
   const [memoContent, setMemoContent] = useState("");
+  const [isSavingMemo, setIsSavingMemo] = useState(false);
   const [isReferencesOpen, setIsReferencesOpen] = useState(false);
   const [referenceTextInput, setReferenceTextInput] = useState("");
   const [referenceUrlInput, setReferenceUrlInput] = useState("");
@@ -570,7 +571,6 @@ const ProjectScriptComposePage = () => {
   const blockElementMapRef = useRef<Record<string, HTMLDivElement | null>>({});
   const memoTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const referencesTouchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const memoSaveTimeoutRef = useRef<number | null>(null);
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -680,39 +680,47 @@ const ProjectScriptComposePage = () => {
   }, [isMemoOpen, projectId, scriptId]);
 
   useEffect(() => {
-    if (!canEditScript || !script || memoContent === script.memoContent) {
+    if (!script) {
       return;
     }
 
-    if (memoSaveTimeoutRef.current) {
-      window.clearTimeout(memoSaveTimeoutRef.current);
+    setMemoContent(script.memoContent);
+  }, [script]);
+
+  const handleSaveMemo = useCallback(async () => {
+    if (!canEditScript || !script || memoContent === script.memoContent || isSavingMemo) {
+      return;
     }
 
-    memoSaveTimeoutRef.current = window.setTimeout(() => {
-      void updateProjectScriptMemoContent(projectId, script.id, { memoContent })
-        .then(() => {
-          setScript((prev) =>
-            prev && prev.id === script.id
-              ? {
-                  ...prev,
-                  memoContent,
-                  updatedAt: new Date().toISOString()
-                }
-              : prev
-          );
-        })
-        .catch(() => {
-          setActionErrorMessage("メモの保存に失敗しました。");
-        });
-    }, 500);
+    try {
+      setIsSavingMemo(true);
+      setActionErrorMessage(null);
+      await updateProjectScriptMemoContent(projectId, script.id, { memoContent });
+      setScript((prev) =>
+        prev && prev.id === script.id
+          ? {
+              ...prev,
+              memoContent,
+              updatedAt: new Date().toISOString()
+            }
+          : prev
+      );
+    } catch {
+      setActionErrorMessage("メモの保存に失敗しました。");
+    } finally {
+      setIsSavingMemo(false);
+    }
+  }, [canEditScript, isSavingMemo, memoContent, projectId, script]);
 
-    return () => {
-      if (memoSaveTimeoutRef.current) {
-        window.clearTimeout(memoSaveTimeoutRef.current);
-        memoSaveTimeoutRef.current = null;
+  const handleMemoKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Enter" && event.shiftKey) {
+        event.preventDefault();
+        void handleSaveMemo();
       }
-    };
-  }, [canEditScript, memoContent, projectId, script]);
+    },
+    [handleSaveMemo]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2216,10 +2224,23 @@ const ProjectScriptComposePage = () => {
                 <Textarea
                   value={memoContent}
                   onChange={(event) => setMemoContent(event.target.value)}
+                  onKeyDown={handleMemoKeyDown}
                   placeholder="参考情報を自由にメモできます"
                   minH={{ base: "60vh", lg: "calc(100vh - 120px)" }}
                   resize="vertical"
+                  readOnly={!canEditScript}
                 />
+                {canEditScript ? (
+                  <Button
+                    alignSelf="flex-start"
+                    colorScheme="teal"
+                    onClick={() => void handleSaveMemo()}
+                    isLoading={isSavingMemo}
+                    isDisabled={memoContent === (script?.memoContent ?? "")}
+                  >
+                    保存
+                  </Button>
+                ) : null}
               </Stack>
             </Box>
           ) : null}
@@ -3373,12 +3394,24 @@ const ProjectScriptComposePage = () => {
               <Textarea
                 value={memoContent}
                 onChange={(event) => setMemoContent(event.target.value)}
+                onKeyDown={handleMemoKeyDown}
                 placeholder="参考情報を自由にメモできます"
                 minH={{ base: "220px", lg: "calc(100vh - 120px)" }}
                 h={{ base: "220px", lg: "calc(100vh - 120px)" }}
                 resize="none"
                 readOnly={!canEditScript}
               />
+              {canEditScript ? (
+                <Button
+                  alignSelf="flex-start"
+                  colorScheme="teal"
+                  onClick={() => void handleSaveMemo()}
+                  isLoading={isSavingMemo}
+                  isDisabled={memoContent === (script?.memoContent ?? "")}
+                >
+                  保存
+                </Button>
+              ) : null}
             </Stack>
           </Box>
         ) : null}
