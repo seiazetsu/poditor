@@ -19,6 +19,7 @@ export type ScriptReference = {
 export type ScriptDetail = ScriptSummary & {
   createdAt: string;
   references: ScriptReference[];
+  memoContent: string;
   previewEnabled?: boolean;
   previewToken?: string | null;
   previewUpdatedAt?: string | null;

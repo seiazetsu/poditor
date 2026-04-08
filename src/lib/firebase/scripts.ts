@@ -36,6 +36,7 @@ type ScriptDocument = {
   status?: unknown;
   editorMode?: unknown;
   references?: unknown;
+  memoContent?: unknown;
   previewEnabled?: unknown;
   previewToken?: unknown;
   previewUpdatedAt?: unknown;
@@ -79,6 +80,10 @@ type UpdateProjectScriptReferencesInput = {
 
 type UpdateProjectScriptEditorModeInput = {
   editorMode: ScriptEditorMode;
+};
+
+type UpdateProjectScriptMemoContentInput = {
+  memoContent: string;
 };
 
 type ReorderScriptsInput = {
@@ -147,6 +152,10 @@ const toScriptReferences = (value: unknown): ScriptReference[] => {
 
     return [{ id, text, url }];
   });
+};
+
+const toScriptMemoContent = (value: unknown): string => {
+  return typeof value === "string" ? value : "";
 };
 
 const toPreviewEnabled = (value: unknown): boolean => value === true;
@@ -344,6 +353,7 @@ export const createProjectScript = async (
     title: trimmedTitle,
     status: "draft",
     editorMode: input.editorMode,
+    memoContent: "",
     sortOrder: -Date.now(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -379,6 +389,7 @@ export const fetchScriptByIdForOwner = async (
     editorMode: toScriptEditorMode(data.editorMode),
     status: toScriptStatus(data.status),
     references: toScriptReferences(data.references),
+    memoContent: toScriptMemoContent(data.memoContent),
     previewEnabled: toPreviewEnabled(data.previewEnabled),
     previewToken: toPreviewToken(data.previewToken),
     previewUpdatedAt:
@@ -408,6 +419,7 @@ export const fetchProjectScriptById = async (
     editorMode: toScriptEditorMode(data.editorMode),
     status: toScriptStatus(data.status),
     references: toScriptReferences(data.references),
+    memoContent: toScriptMemoContent(data.memoContent),
     previewEnabled: toPreviewEnabled(data.previewEnabled),
     previewToken: toPreviewToken(data.previewToken),
     previewUpdatedAt:
@@ -634,6 +646,20 @@ export const updateProjectScriptEditorMode = async (
 
   await updateDoc(scriptRef, {
     editorMode: input.editorMode,
+    updatedAt: serverTimestamp()
+  });
+};
+
+export const updateProjectScriptMemoContent = async (
+  projectId: string,
+  scriptId: string,
+  input: UpdateProjectScriptMemoContentInput
+): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const scriptRef = doc(firestore, "projects", projectId, "scripts", scriptId);
+
+  await updateDoc(scriptRef, {
+    memoContent: input.memoContent,
     updatedAt: serverTimestamp()
   });
 };

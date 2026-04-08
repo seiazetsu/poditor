@@ -45,6 +45,7 @@ import {
   fetchProjectScriptById,
   refreshProjectScriptPreview,
   updateProjectScriptEditorMode,
+  updateProjectScriptMemoContent,
   updateProjectScriptReferences
 } from "@/lib/firebase/scripts";
 import { fetchProjectSpeakers } from "@/lib/firebase/speakers";
@@ -569,6 +570,7 @@ const ProjectScriptComposePage = () => {
   const blockElementMapRef = useRef<Record<string, HTMLDivElement | null>>({});
   const memoTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const referencesTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const memoSaveTimeoutRef = useRef<number | null>(null);
 
   const projectId = params.projectId;
   const scriptId = params.scriptId;
@@ -608,6 +610,7 @@ const ProjectScriptComposePage = () => {
       setScript(scriptData);
       setSpeakers(nextSpeakers);
       setItems(nextItems);
+      setMemoContent(scriptData.memoContent);
       setSelectedSpeakerId((prev) => {
         if (
           prev &&
@@ -663,11 +666,8 @@ const ProjectScriptComposePage = () => {
       return;
     }
 
-    const memoStorageKey = `poditor-compose-memo:${projectId}:${scriptId}`;
-    const savedMemo = window.localStorage.getItem(memoStorageKey);
     const savedIsOpen = window.localStorage.getItem(`${MEMO_OPEN_STORAGE_KEY}:${projectId}:${scriptId}`);
 
-    setMemoContent(savedMemo ?? "");
     setIsMemoOpen(savedIsOpen === "true");
   }, [projectId, scriptId]);
 
@@ -676,16 +676,43 @@ const ProjectScriptComposePage = () => {
       return;
     }
 
-    window.localStorage.setItem(`poditor-compose-memo:${projectId}:${scriptId}`, memoContent);
-  }, [memoContent, projectId, scriptId]);
+    window.localStorage.setItem(`${MEMO_OPEN_STORAGE_KEY}:${projectId}:${scriptId}`, String(isMemoOpen));
+  }, [isMemoOpen, projectId, scriptId]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !projectId || !scriptId) {
+    if (!canEditScript || !script || memoContent === script.memoContent) {
       return;
     }
 
-    window.localStorage.setItem(`${MEMO_OPEN_STORAGE_KEY}:${projectId}:${scriptId}`, String(isMemoOpen));
-  }, [isMemoOpen, projectId, scriptId]);
+    if (memoSaveTimeoutRef.current) {
+      window.clearTimeout(memoSaveTimeoutRef.current);
+    }
+
+    memoSaveTimeoutRef.current = window.setTimeout(() => {
+      void updateProjectScriptMemoContent(projectId, script.id, { memoContent })
+        .then(() => {
+          setScript((prev) =>
+            prev && prev.id === script.id
+              ? {
+                  ...prev,
+                  memoContent,
+                  updatedAt: new Date().toISOString()
+                }
+              : prev
+          );
+        })
+        .catch(() => {
+          setActionErrorMessage("メモの保存に失敗しました。");
+        });
+    }, 500);
+
+    return () => {
+      if (memoSaveTimeoutRef.current) {
+        window.clearTimeout(memoSaveTimeoutRef.current);
+        memoSaveTimeoutRef.current = null;
+      }
+    };
+  }, [canEditScript, memoContent, projectId, script]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3316,7 +3343,7 @@ const ProjectScriptComposePage = () => {
           </Stack>
         </Box>
 
-        {canEditScript && isMemoOpen ? (
+        {isMemoOpen ? (
           <Box
             bg="white"
             borderLeftWidth={{ base: "0", lg: "1px" }}
@@ -3350,6 +3377,7 @@ const ProjectScriptComposePage = () => {
                 minH={{ base: "220px", lg: "calc(100vh - 120px)" }}
                 h={{ base: "220px", lg: "calc(100vh - 120px)" }}
                 resize="none"
+                readOnly={!canEditScript}
               />
             </Stack>
           </Box>
