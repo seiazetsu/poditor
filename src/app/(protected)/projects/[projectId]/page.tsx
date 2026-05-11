@@ -14,6 +14,7 @@ import {
   Badge,
   Box,
   Button,
+  Checkbox,
   Container,
   FormControl,
   FormLabel,
@@ -35,6 +36,8 @@ import {
   updateProjectMemberRole
 } from "@/lib/firebase/projects";
 import { canEditProjectContent, canManageProjectMembers } from "@/lib/permissions/project";
+import { fetchProjectScriptItems } from "@/lib/firebase/items";
+import { fetchProjectSpeakers } from "@/lib/firebase/speakers";
 import {
   deleteProjectScript,
   duplicateProjectScript,
@@ -43,6 +46,7 @@ import {
   updateProjectScriptStatus,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
+import { formatItemsAsScriptText } from "@/lib/scripts/text-mode";
 import { ProjectDetail, ProjectMember, ProjectMemberRole } from "@/types/project";
 import { ScriptStatus, ScriptSummary } from "@/types/script";
 
@@ -137,6 +141,19 @@ const AddIcon = () => (
   </Icon>
 );
 
+const ExportIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M12 4v10M8 10l4 4 4-4M5 18h14"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const DragHandleIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
     <path
@@ -170,6 +187,8 @@ const SCRIPT_STATUS_COLOR_SCHEMES: Record<ScriptStatus, string> = {
   completed: "green",
   recorded: "purple"
 };
+const ALL_SCRIPT_STATUSES: ScriptStatus[] = ["draft", "completed", "recorded"];
+const SCRIPT_STATUS_FILTER_STORAGE_KEY = "poditor-project-script-status-filter";
 
 const ConversationModeIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={3.5}>
@@ -224,7 +243,8 @@ const ProjectDetailPage = () => {
   const [editingTitleInput, setEditingTitleInput] = useState("");
   const [isSavingScriptTitleId, setIsSavingScriptTitleId] = useState<string | null>(null);
   const [isSavingScriptStatusId, setIsSavingScriptStatusId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | ScriptStatus>("all");
+  const [isExportingScriptId, setIsExportingScriptId] = useState<string | null>(null);
+  const [selectedStatuses, setSelectedStatuses] = useState<ScriptStatus[]>(ALL_SCRIPT_STATUSES);
   const [memberEmailInput, setMemberEmailInput] = useState("");
   const [memberRoleInput, setMemberRoleInput] = useState<ProjectMemberRole>("viewer");
   const [isAddingMember, setIsAddingMember] = useState(false);
@@ -233,6 +253,7 @@ const ProjectDetailPage = () => {
   const [dropTargetScriptId, setDropTargetScriptId] = useState<string | null>(null);
   const [isReorderingScripts, setIsReorderingScripts] = useState(false);
   const singleClickTimeoutRef = useRef<number | null>(null);
+  const hasLoadedStatusFilterRef = useRef(false);
 
   const projectId = params.projectId;
 
@@ -280,6 +301,52 @@ const ProjectDetailPage = () => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !user?.uid || !projectId) {
+      return;
+    }
+
+    hasLoadedStatusFilterRef.current = false;
+
+    const savedValue = window.localStorage.getItem(`${SCRIPT_STATUS_FILTER_STORAGE_KEY}:${user.uid}:${projectId}`);
+    if (!savedValue) {
+      setSelectedStatuses(ALL_SCRIPT_STATUSES);
+      hasLoadedStatusFilterRef.current = true;
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(savedValue);
+      if (!Array.isArray(parsed)) {
+        setSelectedStatuses(ALL_SCRIPT_STATUSES);
+        hasLoadedStatusFilterRef.current = true;
+        return;
+      }
+
+      const nextStatuses = ALL_SCRIPT_STATUSES.filter((status) => parsed.includes(status));
+      setSelectedStatuses(nextStatuses);
+      hasLoadedStatusFilterRef.current = true;
+    } catch {
+      setSelectedStatuses(ALL_SCRIPT_STATUSES);
+      hasLoadedStatusFilterRef.current = true;
+    }
+  }, [projectId, user?.uid]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !user?.uid || !projectId) {
+      return;
+    }
+
+    if (!hasLoadedStatusFilterRef.current) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      `${SCRIPT_STATUS_FILTER_STORAGE_KEY}:${user.uid}:${projectId}`,
+      JSON.stringify(selectedStatuses)
+    );
+  }, [projectId, selectedStatuses, user?.uid]);
 
   const currentUserRole = project?.currentUserRole ?? "viewer";
   const canEditScripts = canEditProjectContent(currentUserRole);
@@ -432,6 +499,38 @@ const ProjectDetailPage = () => {
     }
   };
 
+  const handleExportScript = async (script: ScriptSummary) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setIsExportingScriptId(script.id);
+    setErrorMessage(null);
+
+    try {
+      const [items, speakers] = await Promise.all([
+        fetchProjectScriptItems(projectId, script.id),
+        fetchProjectSpeakers(projectId, script.id)
+      ]);
+      const { text } = formatItemsAsScriptText(items, speakers);
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeTitle = script.title.trim().length > 0 ? script.title.trim() : "script";
+
+      link.href = url;
+      link.download = `${safeTitle}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch {
+      setErrorMessage("台本テキストのダウンロードに失敗しました。");
+    } finally {
+      setIsExportingScriptId(null);
+    }
+  };
+
   const handleAddMember = async () => {
     if (!canManageMembers) {
       return;
@@ -485,9 +584,13 @@ const ProjectDetailPage = () => {
     }
   };
 
+  const isAllStatusesSelected =
+    selectedStatuses.length === ALL_SCRIPT_STATUSES.length &&
+    ALL_SCRIPT_STATUSES.every((status) => selectedStatuses.includes(status));
+
   const canReorderScripts =
     canEditScripts &&
-    statusFilter === "all" &&
+    isAllStatusesSelected &&
     !editingScriptId &&
     !isSavingScriptStatusId &&
     !isSavingScriptTitleId &&
@@ -549,7 +652,13 @@ const ProjectDetailPage = () => {
     }
   };
 
-  const filteredScripts = scripts.filter((script) => statusFilter === "all" || script.status === statusFilter);
+  const filteredScripts = scripts.filter((script) => selectedStatuses.includes(script.status));
+
+  const handleToggleStatusFilter = (status: ScriptStatus) => {
+    setSelectedStatuses((prev) =>
+      prev.includes(status) ? prev.filter((currentStatus) => currentStatus !== status) : [...prev, status]
+    );
+  };
 
   return (
     <Box bg="gray.50" minH="100vh" py={10}>
@@ -701,22 +810,24 @@ const ProjectDetailPage = () => {
                 ) : null}
               </Stack>
 
-              <FormControl maxW="220px">
-                <Select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as "all" | ScriptStatus)}
-                  size="sm"
-                >
-                  <option value="all">全て</option>
-                  <option value="draft">下書き</option>
-                  <option value="completed">完成</option>
-                  <option value="recorded">収録済</option>
-                </Select>
+              <FormControl>
+                <Stack direction={{ base: "column", sm: "row" }} spacing={{ base: 2, sm: 4 }}>
+                  {ALL_SCRIPT_STATUSES.map((status) => (
+                    <Checkbox
+                      key={status}
+                      isChecked={selectedStatuses.includes(status)}
+                      onChange={() => handleToggleStatusFilter(status)}
+                      colorScheme="teal"
+                    >
+                      {SCRIPT_STATUS_LABELS[status]}
+                    </Checkbox>
+                  ))}
+                </Stack>
               </FormControl>
 
-              {statusFilter !== "all" ? (
+              {!isAllStatusesSelected ? (
                 <Text color="gray.500" fontSize="sm">
-                  並び替えは「全て」表示時に利用できます。
+                  並び替えは全ステータス選択時に利用できます。
                 </Text>
               ) : null}
 
@@ -727,7 +838,9 @@ const ProjectDetailPage = () => {
               ) : null}
 
               {!isLoading && scripts.length > 0 && filteredScripts.length === 0 ? (
-                <Text color="gray.600">該当するステータスの台本はありません。</Text>
+                <Text color="gray.600">
+                  {selectedStatuses.length === 0 ? "ステータスを1つ以上選択してください。" : "該当するステータスの台本はありません。"}
+                </Text>
               ) : null}
 
               {filteredScripts.map((script) => (
@@ -890,6 +1003,21 @@ const ProjectDetailPage = () => {
                             size="sm"
                             variant="ghost"
                             colorScheme="blue"
+                            rounded="full"
+                          />
+                        </Tooltip>
+                        <Tooltip label="テキストをダウンロード" hasArrow>
+                          <IconButton
+                            aria-label="テキストをダウンロード"
+                            icon={<ExportIcon />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="orange"
+                            onClick={() => {
+                              void handleExportScript(script);
+                            }}
+                            isLoading={isExportingScriptId === script.id}
+                            isDisabled={editingScriptId === script.id}
                             rounded="full"
                           />
                         </Tooltip>

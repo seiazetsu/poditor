@@ -43,7 +43,6 @@ import { fetchProjectByIdForUser } from "@/lib/firebase/projects";
 import { canEditProjectContent } from "@/lib/permissions/project";
 import {
   fetchProjectScriptById,
-  refreshProjectScriptPreview,
   updateProjectScriptEditorMode,
   updateProjectScriptMemoContent,
   updateProjectScriptReferences
@@ -70,6 +69,8 @@ const FONT_SIZE_STORAGE_KEY = "poditor-compose-font-size-index";
 const FONT_SIZE_OPTIONS = ["xs", "sm", "md", "lg", "xl", "2xl"] as const;
 const MEMO_OPEN_STORAGE_KEY = "poditor-compose-memo-open";
 const MEMO_SPEAKER_ID = "__memo__";
+const COMPOSER_HEADER_HEIGHT_BASE = "64px";
+const COMPOSER_HEADER_HEIGHT_LG = "68px";
 const MEMO_SPEAKER: ScriptSpeaker = {
   id: MEMO_SPEAKER_ID,
   name: "メモ",
@@ -213,19 +214,6 @@ const ExportIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
     <path
       d="M12 4v10M8 10l4 4 4-4M5 18h14"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="none"
-    />
-  </Icon>
-);
-
-const PreviewIcon = () => (
-  <Icon viewBox="0 0 24 24" boxSize={4}>
-    <path
-      d="M10 14 21 3M21 3h-6M21 3v6M3 12v7a2 2 0 0 0 2 2h7"
       stroke="currentColor"
       strokeWidth="1.8"
       strokeLinecap="round"
@@ -556,8 +544,6 @@ const ProjectScriptComposePage = () => {
   const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
   const [isSavingReference, setIsSavingReference] = useState(false);
   const [scrollTargetItemId, setScrollTargetItemId] = useState<string | null>(null);
-  const [isOpeningPreview, setIsOpeningPreview] = useState(false);
-  const [origin, setOrigin] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState<ProjectMemberRole>("member");
   const [textModeInput, setTextModeInput] = useState("");
   const [textModeErrorMessage, setTextModeErrorMessage] = useState<string | null>(null);
@@ -654,12 +640,6 @@ const ProjectScriptComposePage = () => {
 
     window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSizeIndex));
   }, [fontSizeIndex]);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setOrigin(window.location.origin);
-    }
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !projectId || !scriptId) {
@@ -1441,40 +1421,6 @@ const ProjectScriptComposePage = () => {
     window.print();
   };
 
-  const handleOpenPreview = async () => {
-    if (!canEditScript) {
-      return;
-    }
-
-    if (!script || !origin || typeof window === "undefined") {
-      return;
-    }
-
-    setIsOpeningPreview(true);
-    setActionErrorMessage(null);
-
-    try {
-      const token = script.previewEnabled && script.previewToken
-        ? script.previewToken
-        : (await refreshProjectScriptPreview(projectId, script.id)).token;
-
-      if (!script.previewEnabled || script.previewToken !== token) {
-        setScript({
-          ...script,
-          previewEnabled: true,
-          previewToken: token,
-          previewUpdatedAt: new Date().toISOString()
-        });
-      }
-
-      window.open(`${origin}/preview/${token}`, "_blank", "noopener,noreferrer");
-    } catch {
-      setActionErrorMessage("共有プレビューを開けませんでした。");
-    } finally {
-      setIsOpeningPreview(false);
-    }
-  };
-
   const handleScrollConversationToBottom = () => {
     const container = conversationScrollRef.current;
     if (!container) {
@@ -1753,6 +1699,100 @@ const ProjectScriptComposePage = () => {
   const contentFontSize = FONT_SIZE_OPTIONS[fontSizeIndex];
   const estimatedDurationLabel = formatEstimatedDuration(items);
   const rightFloatingOffset = isMemoOpen ? "calc(max(320px, 33vw) + 20px)" : "20px";
+  const floatingTopOffset = {
+    base: `calc(${COMPOSER_HEADER_HEIGHT_BASE} + 16px)`,
+    lg: `calc(${COMPOSER_HEADER_HEIGHT_LG} + 16px)`
+  };
+  const contentAreaMinHeight = {
+    base: `calc(100vh - ${COMPOSER_HEADER_HEIGHT_BASE})`,
+    lg: `calc(100vh - ${COMPOSER_HEADER_HEIGHT_LG})`
+  };
+  const composerHeader = (activeMode: "conversation" | "text") => (
+    <Box
+      position="sticky"
+      top={0}
+      zIndex={30}
+      bg="white"
+      borderBottomWidth="1px"
+      borderColor="gray.200"
+      boxShadow="sm"
+      px={{ base: 3, lg: 5 }}
+      h={{ base: COMPOSER_HEADER_HEIGHT_BASE, lg: COMPOSER_HEADER_HEIGHT_LG }}
+      sx={{
+        "@media print": {
+          display: "none"
+        }
+      }}
+    >
+      <Grid templateColumns="auto minmax(0, 1fr) auto" alignItems="center" h="full" columnGap={{ base: 2, lg: 4 }}>
+        <Stack direction="row" spacing={2} align="center">
+          <Tooltip label="一覧に戻る" hasArrow>
+            <IconButton
+              as={NextLink}
+              href={`/projects/${projectId}`}
+              aria-label="一覧に戻る"
+              icon={<ListIcon />}
+              variant="ghost"
+              rounded="full"
+            />
+          </Tooltip>
+          {canEditScript ? (
+            <Tooltip label="基本設定へ戻る" hasArrow>
+              <IconButton
+                as={NextLink}
+                href={`/projects/${projectId}/scripts/${scriptId}`}
+                aria-label="基本設定へ戻る"
+                icon={<BackIcon />}
+                variant="outline"
+                rounded="full"
+              />
+            </Tooltip>
+          ) : null}
+        </Stack>
+
+        <Text fontWeight="bold" fontSize={{ base: "sm", lg: "md" }} color="gray.800" textAlign="center" noOfLines={1}>
+          {script?.title ?? ""}
+        </Text>
+
+        <Stack direction="row" spacing={2} align="center" justifySelf="end">
+          <Tooltip label="会話モード" hasArrow>
+            <IconButton
+              aria-label="会話モードへ切り替える"
+              icon={<ComposerIcon />}
+              size="sm"
+              rounded="full"
+              variant={activeMode === "conversation" ? "solid" : "ghost"}
+              colorScheme={activeMode === "conversation" ? "teal" : "gray"}
+              onClick={() => {
+                if (activeMode !== "conversation") {
+                  void handleSwitchEditorMode("conversation");
+                }
+              }}
+              isLoading={isSwitchingEditorMode && activeMode !== "conversation"}
+              isDisabled={activeMode === "conversation"}
+            />
+          </Tooltip>
+          <Tooltip label="テキストモード" hasArrow>
+            <IconButton
+              aria-label="テキストモードへ切り替える"
+              icon={<TextModeIcon />}
+              size="sm"
+              rounded="full"
+              variant={activeMode === "text" ? "solid" : "ghost"}
+              colorScheme={activeMode === "text" ? "teal" : "gray"}
+              onClick={() => {
+                if (activeMode !== "text") {
+                  void handleSwitchEditorMode("text");
+                }
+              }}
+              isLoading={isSwitchingEditorMode && activeMode !== "text"}
+              isDisabled={activeMode === "text"}
+            />
+          </Tooltip>
+        </Stack>
+      </Grid>
+    </Box>
+  );
 
   if (isLoading) {
     return (
@@ -1813,65 +1853,18 @@ const ProjectScriptComposePage = () => {
             }
           `}
         </style>
-        <Grid templateColumns={{ base: "1fr", lg: isMemoOpen ? "minmax(0, 1fr) minmax(320px, 33vw)" : "minmax(0, 1fr)" }} minH="100vh">
+        {composerHeader("text")}
+        <Grid
+          templateColumns={{ base: "1fr", lg: isMemoOpen ? "minmax(0, 1fr) minmax(320px, 33vw)" : "minmax(0, 1fr)" }}
+          minH={contentAreaMinHeight}
+        >
           <Box bg="white" p={{ base: 4, lg: 6 }} borderRightWidth={isMemoOpen ? "1px" : "0"} position="relative">
             <Stack spacing={5} h="full">
-              <Stack direction="row" justify="space-between" align="center">
-                <Stack direction="row" spacing={2}>
-                  <Tooltip label="一覧に戻る" hasArrow>
-                    <IconButton
-                      as={NextLink}
-                      href={`/projects/${projectId}`}
-                      aria-label="一覧に戻る"
-                      icon={<ListIcon />}
-                      variant="ghost"
-                      rounded="full"
-                    />
-                  </Tooltip>
-                  <Tooltip label="基本設定へ戻る" hasArrow>
-                    <IconButton
-                      as={NextLink}
-                      href={`/projects/${projectId}/scripts/${script.id}`}
-                      aria-label="基本設定へ戻る"
-                      icon={<BackIcon />}
-                      variant="outline"
-                      rounded="full"
-                      display={canEditScript ? "inline-flex" : "none"}
-                    />
-                  </Tooltip>
-                </Stack>
-                <Stack direction="row" spacing={2}>
-                  <Tooltip label="会話モード" hasArrow>
-                    <IconButton
-                      aria-label="会話モードへ切り替える"
-                      icon={<ComposerIcon />}
-                      size="sm"
-                      rounded="full"
-                      variant="ghost"
-                      colorScheme="gray"
-                      onClick={() => void handleSwitchEditorMode("conversation")}
-                      isLoading={isSwitchingEditorMode}
-                    />
-                  </Tooltip>
-                  <Tooltip label="テキストモード" hasArrow>
-                    <IconButton
-                      aria-label="テキストモードへ切り替える"
-                      icon={<TextModeIcon />}
-                      size="sm"
-                      rounded="full"
-                      variant="solid"
-                      colorScheme="teal"
-                      isDisabled
-                    />
-                  </Tooltip>
-                </Stack>
-              </Stack>
-
-              <Stack spacing={1}>
-                <Text color="gray.700" fontSize="sm" fontWeight="bold" noOfLines={2}>
-                  {script.title}
+              <Box borderTopWidth="1px" borderColor="gray.200" pt={3}>
+                <Text color="gray.500" fontSize="xs">
+                  想定時間: {estimatedDurationLabel}
                 </Text>
-              </Stack>
+              </Box>
 
               {textModeErrorMessage ? (
                 <Alert status="error" rounded="md">
@@ -1925,7 +1918,7 @@ const ProjectScriptComposePage = () => {
 
             <Box
               position="fixed"
-              top={{ base: 4, lg: 6 }}
+              top={floatingTopOffset}
               right={{ base: 4, lg: rightFloatingOffset }}
               zIndex={20}
               data-text-mode-controls="true"
@@ -1979,14 +1972,14 @@ const ProjectScriptComposePage = () => {
               </Stack>
             </Box>
 
-            <Box
-              position="fixed"
-              top="50%"
-              right={{ base: 4, lg: rightFloatingOffset }}
-              transform="translateY(-50%)"
-              zIndex={20}
-              data-text-mode-controls="true"
-              sx={{
+          <Box
+            position="fixed"
+            top={{ base: `calc(${COMPOSER_HEADER_HEIGHT_BASE} + 140px)`, lg: `calc(${COMPOSER_HEADER_HEIGHT_LG} + 160px)` }}
+            right={{ base: 4, lg: rightFloatingOffset }}
+            transform="none"
+            zIndex={20}
+            data-text-mode-controls="true"
+            sx={{
                 "@media print": {
                   display: "none"
                 }
@@ -2091,23 +2084,6 @@ const ProjectScriptComposePage = () => {
                     </Stack>
                   </Box>
                 ) : null}
-
-                <Tooltip label="共有プレビューを開く" hasArrow>
-                  <IconButton
-                    aria-label="共有プレビューを開く"
-                    icon={<PreviewIcon />}
-                    variant="ghost"
-                    rounded="full"
-                    onClick={() => {
-                      if (isTextModeDirty) {
-                        setTextModeErrorMessage("共有プレビューを開く前に保存してください。");
-                        return;
-                      }
-                      void handleOpenPreview();
-                    }}
-                    isLoading={isOpeningPreview}
-                  />
-                </Tooltip>
 
                 <Tooltip label="テキストを印刷" hasArrow>
                   <IconButton
@@ -2262,6 +2238,7 @@ const ProjectScriptComposePage = () => {
           }
         `}
       </style>
+      {composerHeader("conversation")}
       <Grid
         templateColumns={{
           base: "1fr",
@@ -2274,7 +2251,7 @@ const ProjectScriptComposePage = () => {
               : "minmax(0, 1fr)"
         }}
         gap={0}
-        minH="100vh"
+        minH={contentAreaMinHeight}
         sx={{
           "@media print": {
             display: "block"
@@ -2318,65 +2295,12 @@ const ProjectScriptComposePage = () => {
           onClick={(event) => event.stopPropagation()}
         >
           <Stack spacing={5}>
-            <Stack spacing={2}>
-              <Stack direction="row" spacing={2} justify="space-between" align="center">
-                <Stack direction="row" spacing={2}>
-                  <Tooltip label="一覧に戻る" hasArrow>
-                    <IconButton
-                      as={NextLink}
-                      href={`/projects/${projectId}`}
-                      aria-label="一覧に戻る"
-                      icon={<ListIcon />}
-                      variant="ghost"
-                      rounded="full"
-                    />
-                  </Tooltip>
-                  <Tooltip label="基本設定へ戻る" hasArrow>
-                    <IconButton
-                      as={NextLink}
-                      href={`/projects/${projectId}/scripts/${script.id}`}
-                      aria-label="基本設定へ戻る"
-                      icon={<BackIcon />}
-                      variant="outline"
-                      rounded="full"
-                      display={canEditScript ? "inline-flex" : "none"}
-                    />
-                  </Tooltip>
-                </Stack>
-                <Stack direction="row" spacing={2}>
-                  <Tooltip label="会話モード" hasArrow>
-                    <IconButton
-                      aria-label="会話モードへ切り替える"
-                      icon={<ComposerIcon />}
-                      size="sm"
-                      rounded="full"
-                      variant="solid"
-                      colorScheme="teal"
-                      isDisabled
-                    />
-                  </Tooltip>
-                  <Tooltip label="テキストモード" hasArrow>
-                    <IconButton
-                      aria-label="テキストモードへ切り替える"
-                      icon={<TextModeIcon />}
-                      size="sm"
-                      rounded="full"
-                      variant="ghost"
-                      colorScheme="gray"
-                      onClick={() => void handleSwitchEditorMode("text")}
-                      isLoading={isSwitchingEditorMode}
-                    />
-                  </Tooltip>
-                </Stack>
-              </Stack>
-              <Stack spacing={1}>
-                <Text color="gray.700" fontSize="sm" fontWeight="bold" noOfLines={2}>
-                  {script.title}
+            <Stack spacing={1}>
+              <Box borderTopWidth="1px" borderColor="gray.200" pt={3}>
+                <Text color="gray.500" fontSize="xs">
+                  想定時間: {estimatedDurationLabel}
                 </Text>
-              </Stack>
-              <Text color="gray.500" fontSize="xs">
-                想定時間: {estimatedDurationLabel}
-              </Text>
+              </Box>
             </Stack>
 
             {actionErrorMessage ? (
@@ -2649,7 +2573,7 @@ const ProjectScriptComposePage = () => {
         >
           <Box
             position="fixed"
-            top={{ base: 4, lg: 6 }}
+            top={floatingTopOffset}
             right={{ base: 4, lg: rightFloatingOffset }}
             zIndex={20}
             display={canEditScript ? "block" : "none"}
@@ -2709,9 +2633,9 @@ const ProjectScriptComposePage = () => {
 
           <Box
             position="fixed"
-            top="50%"
+            top={{ base: `calc(${COMPOSER_HEADER_HEIGHT_BASE} + 140px)`, lg: `calc(${COMPOSER_HEADER_HEIGHT_LG} + 160px)` }}
             right={{ base: 4, lg: rightFloatingOffset }}
-            transform="translateY(-50%)"
+            transform="none"
             zIndex={20}
             sx={{
               "@media print": {
@@ -2728,17 +2652,6 @@ const ProjectScriptComposePage = () => {
               p={1}
               boxShadow="lg"
             >
-              <Tooltip label="共有プレビューを開く" hasArrow placement="left">
-                <IconButton
-                  aria-label="共有プレビューを開く"
-                  icon={<PreviewIcon />}
-                  variant="ghost"
-                  rounded="full"
-                  onClick={() => void handleOpenPreview()}
-                  isLoading={isOpeningPreview}
-                  isDisabled={!canEditScript}
-                />
-              </Tooltip>
               <Tooltip label="会話ビューを印刷" hasArrow placement="left">
                 <IconButton
                   aria-label="会話ビューを印刷"
