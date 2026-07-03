@@ -158,6 +158,7 @@ const formatDateTime = (value: string): string => {
 
 const SCRIPT_STATUS_OPTIONS: Array<{ value: ScriptStatus; label: string }> = [
   { value: "draft", label: "下書き" },
+  { value: "almost_completed", label: "ほぼ完成" },
   { value: "completed", label: "完成" },
   { value: "recorded", label: "収録済" }
 ];

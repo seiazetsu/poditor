@@ -178,16 +178,18 @@ const formatCreatedAt = (createdAt: string): string => {
 
 const SCRIPT_STATUS_LABELS: Record<ScriptStatus, string> = {
   draft: "下書き",
+  almost_completed: "ほぼ完成",
   completed: "完成",
   recorded: "収録済"
 };
 
 const SCRIPT_STATUS_COLOR_SCHEMES: Record<ScriptStatus, string> = {
   draft: "gray",
+  almost_completed: "blue",
   completed: "green",
   recorded: "purple"
 };
-const ALL_SCRIPT_STATUSES: ScriptStatus[] = ["draft", "completed", "recorded"];
+const ALL_SCRIPT_STATUSES: ScriptStatus[] = ["draft", "almost_completed", "completed", "recorded"];
 const SCRIPT_STATUS_FILTER_STORAGE_KEY = "poditor-project-script-status-filter";
 
 const ConversationModeIcon = () => (
@@ -218,6 +220,10 @@ const TextModeIcon = () => (
 
 const getNextScriptStatus = (status: ScriptStatus): ScriptStatus => {
   if (status === "draft") {
+    return "almost_completed";
+  }
+
+  if (status === "almost_completed") {
     return "completed";
   }
 

@@ -120,7 +120,7 @@ const normalizeSortOrder = (value: unknown, fallback: number): number => {
 };
 
 const toScriptStatus = (value: unknown): ScriptStatus => {
-  if (value === "completed" || value === "recorded") {
+  if (value === "almost_completed" || value === "completed" || value === "recorded") {
     return value;
   }
 

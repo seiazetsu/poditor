@@ -1,4 +1,4 @@
-export type ScriptStatus = "draft" | "completed" | "recorded";
+export type ScriptStatus = "draft" | "almost_completed" | "completed" | "recorded";
 export type ScriptEditorMode = "conversation" | "text";
 
 export type ScriptSummary = {
