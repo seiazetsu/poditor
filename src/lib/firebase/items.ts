@@ -74,6 +74,10 @@ type UpdateMediaInput = {
 };
 
 type ReorderDialogueInput = string[];
+type ItemOrderUpdate = {
+  id: string;
+  order: number;
+};
 
 type ReplaceProjectScriptItemsInput = Array<
   | {
@@ -277,7 +281,7 @@ export const createProjectDialogueItem = async (
   projectId: string,
   scriptId: string,
   input: CreateDialogueInput
-): Promise<string> => {
+): Promise<ScriptDialogueItem> => {
   const trimmedContent = input.content.trim();
   if (!trimmedContent) {
     throw new Error("本文は必須です。");
@@ -297,7 +301,15 @@ export const createProjectDialogueItem = async (
     updatedAt: serverTimestamp()
   });
 
-  return docRef.id;
+  return {
+    id: docRef.id,
+    type: "dialogue",
+    order: input.order,
+    speakerId: input.speakerId,
+    pairId: input.pairId,
+    content: trimmedContent,
+    updatedAt: new Date().toISOString()
+  };
 };
 
 export const createSectionItem = async (scriptId: string, input: CreateSectionInput): Promise<string> => {
@@ -323,7 +335,7 @@ export const createProjectSectionItem = async (
   projectId: string,
   scriptId: string,
   input: CreateSectionInput
-): Promise<string> => {
+): Promise<ScriptSectionItem> => {
   const trimmedTitle = input.title.trim();
   if (!trimmedTitle) {
     throw new Error("セクション名は必須です。");
@@ -339,7 +351,14 @@ export const createProjectSectionItem = async (
     updatedAt: serverTimestamp()
   });
 
-  return docRef.id;
+  return {
+    id: docRef.id,
+    type: "section",
+    order: input.order,
+    speakerId: "",
+    title: trimmedTitle,
+    updatedAt: new Date().toISOString()
+  };
 };
 
 export const updateProjectSectionItem = async (
@@ -457,7 +476,7 @@ export const createProjectMediaItem = async (
   projectId: string,
   scriptId: string,
   input: CreateMediaInput
-): Promise<string> => {
+): Promise<ScriptMediaItem> => {
   const trimmedUrl = input.url.trim();
   if (!trimmedUrl) {
     throw new Error("URL は必須です。");
@@ -477,7 +496,18 @@ export const createProjectMediaItem = async (
     updatedAt: serverTimestamp()
   });
 
-  return docRef.id;
+  return {
+    id: docRef.id,
+    type: "media",
+    order: input.order,
+    speakerId: input.speakerId ?? "",
+    pairId: input.pairId,
+    mediaType: input.mediaType,
+    label: input.label.trim(),
+    url: trimmedUrl,
+    note: input.note.trim(),
+    updatedAt: new Date().toISOString()
+  };
 };
 
 export const updateProjectScriptItemSpeaker = async (
@@ -564,6 +594,29 @@ export const reorderProjectScriptItems = async (
     const itemRef = doc(firestore, "projects", projectId, "scripts", scriptId, "items", itemId);
     batch.update(itemRef, {
       order: index + 1,
+      updatedAt: serverTimestamp()
+    });
+  });
+
+  await batch.commit();
+};
+
+export const updateProjectScriptItemOrders = async (
+  projectId: string,
+  scriptId: string,
+  updates: ItemOrderUpdate[]
+): Promise<void> => {
+  if (updates.length === 0) {
+    return;
+  }
+
+  const firestore = getFirebaseFirestore();
+  const batch = writeBatch(firestore);
+
+  updates.forEach((item) => {
+    const itemRef = doc(firestore, "projects", projectId, "scripts", scriptId, "items", item.id);
+    batch.update(itemRef, {
+      order: item.order,
       updatedAt: serverTimestamp()
     });
   });

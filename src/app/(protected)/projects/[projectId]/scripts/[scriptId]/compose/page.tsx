@@ -33,9 +33,9 @@ import {
   createProjectMediaItem,
   deleteProjectScriptItem,
   fetchProjectScriptItems,
-  reorderProjectScriptItems,
   replaceProjectScriptItems,
   updateProjectDialogueItem,
+  updateProjectScriptItemOrders,
   updateProjectScriptItemSpeaker,
   updateProjectSectionItem
 } from "@/lib/firebase/items";
@@ -69,6 +69,7 @@ const FONT_SIZE_STORAGE_KEY = "poditor-compose-font-size-index";
 const FONT_SIZE_OPTIONS = ["xs", "sm", "md", "lg", "xl", "2xl"] as const;
 const MEMO_OPEN_STORAGE_KEY = "poditor-compose-memo-open";
 const MEMO_SPEAKER_ID = "__memo__";
+const ITEM_ORDER_STEP = 1000;
 const COMPOSER_HEADER_HEIGHT_BASE = "64px";
 const COMPOSER_HEADER_HEIGHT_LG = "68px";
 const MEMO_SPEAKER: ScriptSpeaker = {
@@ -76,6 +77,46 @@ const MEMO_SPEAKER: ScriptSpeaker = {
   name: "メモ",
   color: "#A0AEC0",
   updatedAt: ""
+};
+
+const sortScriptItemsByOrder = (items: ScriptItem[]): ScriptItem[] => {
+  return [...items].sort((a, b) => a.order - b.order);
+};
+
+const getOrderSlots = (
+  previousOrder: number | undefined,
+  nextOrder: number | undefined,
+  count: number
+): number[] => {
+  if (count <= 0) {
+    return [];
+  }
+
+  if (typeof previousOrder === "number" && typeof nextOrder === "number") {
+    const gap = nextOrder - previousOrder;
+    if (gap > Number.EPSILON) {
+      const step = gap / (count + 1);
+      return Array.from({ length: count }, (_, index) => previousOrder + step * (index + 1));
+    }
+  }
+
+  if (typeof previousOrder === "number") {
+    return Array.from({ length: count }, (_, index) => previousOrder + ITEM_ORDER_STEP * (index + 1));
+  }
+
+  if (typeof nextOrder === "number") {
+    return Array.from({ length: count }, (_, index) => nextOrder - ITEM_ORDER_STEP * (count - index));
+  }
+
+  return Array.from({ length: count }, (_, index) => ITEM_ORDER_STEP * (index + 1));
+};
+
+const getInsertionOrderSlots = (items: ScriptItem[], insertionIndex: number, count: number): number[] => {
+  const orderedItems = sortScriptItemsByOrder(items);
+  const previousOrder = orderedItems[insertionIndex - 1]?.order;
+  const nextOrder = orderedItems[insertionIndex]?.order;
+
+  return getOrderSlots(previousOrder, nextOrder, count);
 };
 
 const InsertIcon = () => (
@@ -907,19 +948,20 @@ const ProjectScriptComposePage = () => {
     setActionErrorMessage(null);
 
     try {
-      const maxOrder = items.reduce((max, item) => (item.order > max ? item.order : max), 0);
       const pairId = shouldCreateMedia ? crypto.randomUUID() : undefined;
-      const createdId = await createProjectDialogueItem(projectId, scriptId, {
-        order: items.length === 0 ? 1 : maxOrder + 1,
+      const insertionIndex = insertionTarget === END_INSERTION ? items.length : insertionTarget;
+      const orderSlots = getInsertionOrderSlots(items, insertionIndex, shouldCreateMedia ? 2 : 1);
+      const createdDialogue = await createProjectDialogueItem(projectId, scriptId, {
+        order: orderSlots[0],
         speakerId: selectedSpeakerId,
         pairId,
         content: trimmedContent
       });
-      let createdMediaId: string | null = null;
+      let createdMedia: ScriptMediaItem | null = null;
 
       if (shouldCreateMedia) {
-        createdMediaId = await createProjectMediaItem(projectId, scriptId, {
-          order: items.length === 0 ? 2 : maxOrder + 2,
+        createdMedia = await createProjectMediaItem(projectId, scriptId, {
+          order: orderSlots[1],
           speakerId: selectedSpeakerId,
           pairId,
           mediaType: mediaTypeInput,
@@ -929,22 +971,14 @@ const ProjectScriptComposePage = () => {
         });
       }
 
-      if (insertionTarget !== END_INSERTION) {
-        const nextIds = items.map((item) => item.id);
-        const idsToInsert = createdMediaId ? [createdId, createdMediaId] : [createdId];
-        nextIds.splice(insertionTarget, 0, ...idsToInsert);
-        await reorderProjectScriptItems(projectId, scriptId, nextIds);
-      }
-
       setContentInput("");
       setMediaUrlInput("");
       setPendingImageUrl(null);
       setMediaTypeInput("image");
       setInsertionTarget(END_INSERTION);
       setIsMobileComposerOpen(false);
-      const nextItems = await fetchProjectScriptItems(projectId, scriptId);
-      setScrollTargetItemId(createdMediaId ?? createdId);
-      setItems(nextItems);
+      setScrollTargetItemId(createdMedia?.id ?? createdDialogue.id);
+      setItems((prev) => sortScriptItemsByOrder([...prev, createdDialogue, ...(createdMedia ? [createdMedia] : [])]));
     } catch {
       setActionErrorMessage("投稿に失敗しました。");
     } finally {
@@ -967,25 +1001,19 @@ const ProjectScriptComposePage = () => {
     setActionErrorMessage(null);
 
     try {
-      const maxOrder = items.reduce((max, item) => (item.order > max ? item.order : max), 0);
-      const createdId = await createProjectSectionItem(projectId, scriptId, {
-        order: items.length === 0 ? 1 : maxOrder + 1,
+      const insertionIndex = insertionTarget === END_INSERTION ? items.length : insertionTarget;
+      const [order] = getInsertionOrderSlots(items, insertionIndex, 1);
+      const createdSection = await createProjectSectionItem(projectId, scriptId, {
+        order,
         title: trimmedTitle
       });
-
-      if (insertionTarget !== END_INSERTION) {
-        const nextIds = items.map((item) => item.id);
-        nextIds.splice(insertionTarget, 0, createdId);
-        await reorderProjectScriptItems(projectId, scriptId, nextIds);
-      }
 
       setSectionTitleInput("");
       setInputMode("dialogue");
       setInsertionTarget(END_INSERTION);
       setIsMobileComposerOpen(false);
-      const nextItems = await fetchProjectScriptItems(projectId, scriptId);
-      setScrollTargetItemId(createdId);
-      setItems(nextItems);
+      setScrollTargetItemId(createdSection.id);
+      setItems((prev) => sortScriptItemsByOrder([...prev, createdSection]));
     } catch {
       setActionErrorMessage("セクションの追加に失敗しました。");
     } finally {
@@ -1100,10 +1128,18 @@ const ProjectScriptComposePage = () => {
 
     const reorderedIds = reorderedBlocks.flatMap((block) => block.itemIds);
     const itemMap = new Map(items.map((item) => [item.id, item]));
-    const normalized = reorderedIds.map((itemId, index) => ({
-      ...itemMap.get(itemId)!,
-      order: index + 1
-    }));
+    const reorderedItems = reorderedIds.map((itemId) => itemMap.get(itemId)!);
+    const movedStartIndex = reorderedIds.findIndex((itemId) => movedBlock.itemIds.includes(itemId));
+    const previousOrder = reorderedItems[movedStartIndex - 1]?.order;
+    const nextOrder = reorderedItems[movedStartIndex + movedBlock.itemIds.length]?.order;
+    const nextOrders = getOrderSlots(previousOrder, nextOrder, movedBlock.itemIds.length);
+    const movedOrderMap = new Map(movedBlock.itemIds.map((itemId, index) => [itemId, nextOrders[index]]));
+    const normalized = sortScriptItemsByOrder(
+      reorderedItems.map((item) => {
+        const nextOrder = movedOrderMap.get(item.id);
+        return typeof nextOrder === "number" ? { ...item, order: nextOrder } : item;
+      })
+    );
 
     setItems(normalized);
     setDraggedItemId(null);
@@ -1111,10 +1147,13 @@ const ProjectScriptComposePage = () => {
     setActionErrorMessage(null);
 
     try {
-      await reorderProjectScriptItems(
+      await updateProjectScriptItemOrders(
         projectId,
         scriptId,
-        normalized.map((item) => item.id)
+        movedBlock.itemIds.flatMap((itemId) => {
+          const order = movedOrderMap.get(itemId);
+          return typeof order === "number" ? [{ id: itemId, order }] : [];
+        })
       );
     } catch {
       setActionErrorMessage("並び替えの保存に失敗しました。");
@@ -1276,7 +1315,7 @@ const ProjectScriptComposePage = () => {
     const remainingItems = items.filter((item) => !pairedItemIds.includes(item.id));
 
     setDeletingItemId(itemId);
-    setItems(remainingItems.map((item, index) => ({ ...item, order: index + 1 })));
+    setItems(remainingItems);
     setDraggedItemId(null);
     setDropTargetId(null);
     setActionErrorMessage(null);
@@ -1290,11 +1329,6 @@ const ProjectScriptComposePage = () => {
     try {
       await Promise.all(
         pairedItemIds.map((pairedItemId) => deleteProjectScriptItem(projectId, scriptId, pairedItemId))
-      );
-      await reorderProjectScriptItems(
-        projectId,
-        scriptId,
-        remainingItems.map((item) => item.id)
       );
       setInsertionTarget((prev) => {
         if (prev === END_INSERTION) {
@@ -1374,7 +1408,7 @@ const ProjectScriptComposePage = () => {
     const remainingItems = items.filter((item) => !selectedItemIds.includes(item.id));
 
     setIsDeletingSelection(true);
-    setItems(remainingItems.map((item, index) => ({ ...item, order: index + 1 })));
+    setItems(remainingItems);
     setSelectedBlockKeys([]);
     setLastSelectedBlockKey(null);
     setDraggedItemId(null);
@@ -1391,11 +1425,6 @@ const ProjectScriptComposePage = () => {
     try {
       await Promise.all(
         selectedItemIds.map((itemId) => deleteProjectScriptItem(projectId, scriptId, itemId))
-      );
-      await reorderProjectScriptItems(
-        projectId,
-        scriptId,
-        remainingItems.map((item) => item.id)
       );
       setInsertionTarget((prev) => {
         if (prev === END_INSERTION) {
