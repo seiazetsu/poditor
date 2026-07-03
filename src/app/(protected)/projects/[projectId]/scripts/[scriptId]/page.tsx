@@ -55,6 +55,19 @@ const CopyIcon = () => (
   </Icon>
 );
 
+const DownloadIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M12 4v10M8 10l4 4 4-4M5 20h14"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const BackIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={4}>
     <path
@@ -167,6 +180,15 @@ const SCRIPT_EDITOR_MODE_OPTIONS: Array<{ value: ScriptEditorMode; label: string
   { value: "conversation", label: "会話モード" },
   { value: "text", label: "テキストモード" }
 ];
+
+const escapeHtml = (value: string): string => {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+};
 
 const ProjectScriptSettingsPage = () => {
   const params = useParams<{ projectId: string; scriptId: string }>();
@@ -355,6 +377,43 @@ const ProjectScriptSettingsPage = () => {
     }
 
     await navigator.clipboard.writeText(copyText);
+  };
+
+  const handleDownloadReferencesHtml = () => {
+    if (!script || script.references.length === 0 || typeof window === "undefined") {
+      return;
+    }
+
+    const html = script.references
+      .map((reference) => {
+        const text = reference.text.trim();
+        const url = reference.url.trim();
+        const label = text || url;
+
+        if (!label && !url) {
+          return "";
+        }
+
+        return `<p><a href="${escapeHtml(url)}" target="_blank">${escapeHtml(label)}</a></p>`;
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    if (!html) {
+      return;
+    }
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeTitle = script.title.trim().length > 0 ? script.title.trim() : "script";
+
+    link.href = url;
+    link.download = `${safeTitle}-references.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const previewUrl = script?.previewEnabled && script.previewToken && origin
@@ -833,16 +892,28 @@ const ProjectScriptSettingsPage = () => {
                 <Stack direction={{ base: "column", sm: "row" }} justify="space-between" align={{ base: "start", sm: "center" }}>
                   <Heading size="md">参考文献</Heading>
                   {script.references.length > 0 ? (
-                    <Tooltip label="参考文献をすべてコピー" hasArrow>
-                      <IconButton
-                        aria-label="参考文献をすべてコピー"
-                        icon={<CopyIcon />}
-                        size="sm"
-                        variant="ghost"
-                        rounded="full"
-                        onClick={() => void handleCopyReferences()}
-                      />
-                    </Tooltip>
+                    <Stack direction="row" spacing={1}>
+                      <Tooltip label="参考文献をHTMLでダウンロード" hasArrow>
+                        <IconButton
+                          aria-label="参考文献をHTMLでダウンロード"
+                          icon={<DownloadIcon />}
+                          size="sm"
+                          variant="ghost"
+                          rounded="full"
+                          onClick={handleDownloadReferencesHtml}
+                        />
+                      </Tooltip>
+                      <Tooltip label="参考文献をすべてコピー" hasArrow>
+                        <IconButton
+                          aria-label="参考文献をすべてコピー"
+                          icon={<CopyIcon />}
+                          size="sm"
+                          variant="ghost"
+                          rounded="full"
+                          onClick={() => void handleCopyReferences()}
+                        />
+                      </Tooltip>
+                    </Stack>
                   ) : null}
                 </Stack>
                 <SaveStatusNotice status={referenceSaveStatus} message={referenceSaveMessage} />
