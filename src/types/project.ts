@@ -8,6 +8,7 @@ export type ProjectSummary = {
 export type ProjectDetail = ProjectSummary & {
   createdAt: string;
   currentUserRole: ProjectMemberRole;
+  memoContent: string;
 };
 
 export type ProjectMemberRole = "owner" | "member" | "viewer";

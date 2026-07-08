@@ -21,6 +21,7 @@ type ProjectDocument = {
   ownerUid?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
+  memoContent?: unknown;
 };
 
 type MemberDocument = {
@@ -40,6 +41,10 @@ type CreateProjectInput = {
 type AddProjectMemberInput = {
   email: string;
   role: ProjectMemberRole;
+};
+
+type UpdateProjectMemoContentInput = {
+  memoContent: string;
 };
 
 type UserProjectMembershipDocument = {
@@ -68,6 +73,10 @@ const toIsoDate = (value: unknown): string => {
 
 const toProjectName = (value: unknown): string => {
   return typeof value === "string" && value.trim().length > 0 ? value : "無題プロジェクト";
+};
+
+const toProjectMemoContent = (value: unknown): string => {
+  return typeof value === "string" ? value : "";
 };
 
 const toMemberRole = (value: unknown): ProjectMemberRole => {
@@ -104,6 +113,7 @@ export const createProject = async ({ name, ownerUid, ownerEmail }: CreateProjec
   const projectRef = await addDoc(projectsRef, {
     name: trimmedName,
     ownerUid,
+    memoContent: "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -221,8 +231,22 @@ export const fetchProjectByIdForUser = async (
     ownerUid: typeof data.ownerUid === "string" ? data.ownerUid : "",
     createdAt: toIsoDate(data.createdAt),
     updatedAt: toIsoDate(data.updatedAt),
-    currentUserRole: toMemberRole(memberData.role)
+    currentUserRole: toMemberRole(memberData.role),
+    memoContent: toProjectMemoContent(data.memoContent)
   };
+};
+
+export const updateProjectMemoContent = async (
+  projectId: string,
+  input: UpdateProjectMemoContentInput
+): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const projectRef = doc(firestore, "projects", projectId);
+
+  await updateDoc(projectRef, {
+    memoContent: input.memoContent,
+    updatedAt: serverTimestamp()
+  });
 };
 
 export const fetchProjectMembers = async (projectId: string): Promise<ProjectMember[]> => {

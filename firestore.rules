@@ -57,15 +57,22 @@ service cloud.firestore {
         && canEditProject(resource.data.projectId);
     }
 
-    // project 本体は参加者のみ read、owner のみ write。
+    // project 本体は参加者のみ read、owner が管理、owner/member がメモを更新する。
     match /projects/{projectId} {
       allow read: if isProjectMember(projectId)
         || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
       allow create: if isSignedIn()
         && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isProjectOwner(projectId)
-        && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if (
+          isProjectOwner(projectId)
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.ownerUid == request.auth.uid
+        ) || (
+          canEditProject(projectId)
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["memoContent", "updatedAt"])
+          && request.resource.data.memoContent is string
+        );
       allow delete: if isProjectOwner(projectId);
 
       // members は参加者が read、owner が管理する。

@@ -1,6 +1,6 @@
 "use client";
 
-import { DragEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { DragEvent, KeyboardEvent, TouchEvent, useCallback, useEffect, useRef, useState } from "react";
 import NextLink from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -25,6 +25,7 @@ import {
   Select,
   Stack,
   Text,
+  Textarea,
   Tooltip
 } from "@chakra-ui/react";
 
@@ -33,6 +34,7 @@ import {
   addProjectMember,
   fetchProjectByIdForUser,
   fetchProjectMembers,
+  updateProjectMemoContent,
   updateProjectMemberRole
 } from "@/lib/firebase/projects";
 import { canEditProjectContent, canManageProjectMembers } from "@/lib/permissions/project";
@@ -167,6 +169,32 @@ const DragHandleIcon = () => (
   </Icon>
 );
 
+const MemoIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={5}>
+    <path
+      d="M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 5h6M9 13h6M9 17h3"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
+const CloseIcon = () => (
+  <Icon viewBox="0 0 24 24" boxSize={4}>
+    <path
+      d="M7 7l10 10M17 7 7 17"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </Icon>
+);
+
 const formatCreatedAt = (createdAt: string): string => {
   return new Intl.DateTimeFormat("ja-JP", {
     month: "2-digit",
@@ -191,6 +219,7 @@ const SCRIPT_STATUS_COLOR_SCHEMES: Record<ScriptStatus, string> = {
 };
 const ALL_SCRIPT_STATUSES: ScriptStatus[] = ["draft", "almost_completed", "completed", "recorded"];
 const SCRIPT_STATUS_FILTER_STORAGE_KEY = "poditor-project-script-status-filter";
+const PROJECT_MEMO_OPEN_STORAGE_KEY = "poditor-project-memo-open";
 
 const ConversationModeIcon = () => (
   <Icon viewBox="0 0 24 24" boxSize={3.5}>
@@ -255,10 +284,14 @@ const ProjectDetailPage = () => {
   const [memberRoleInput, setMemberRoleInput] = useState<ProjectMemberRole>("viewer");
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [isUpdatingMemberRoleId, setIsUpdatingMemberRoleId] = useState<string | null>(null);
+  const [isMemoOpen, setIsMemoOpen] = useState(false);
+  const [memoContent, setMemoContent] = useState("");
+  const [isSavingMemo, setIsSavingMemo] = useState(false);
   const [draggedScriptId, setDraggedScriptId] = useState<string | null>(null);
   const [dropTargetScriptId, setDropTargetScriptId] = useState<string | null>(null);
   const [isReorderingScripts, setIsReorderingScripts] = useState(false);
   const singleClickTimeoutRef = useRef<number | null>(null);
+  const memoTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const hasLoadedStatusFilterRef = useRef(false);
 
   const projectId = params.projectId;
@@ -287,6 +320,7 @@ const ProjectDetailPage = () => {
       ]);
 
       setProject(projectData);
+      setMemoContent(projectData.memoContent);
       setMembers(nextMembers);
       setScripts(nextScripts);
     } catch {
@@ -354,9 +388,84 @@ const ProjectDetailPage = () => {
     );
   }, [projectId, selectedStatuses, user?.uid]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !user?.uid || !projectId) {
+      return;
+    }
+
+    const savedIsOpen = window.localStorage.getItem(`${PROJECT_MEMO_OPEN_STORAGE_KEY}:${user.uid}:${projectId}`);
+    setIsMemoOpen(savedIsOpen === "true");
+  }, [projectId, user?.uid]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !user?.uid || !projectId) {
+      return;
+    }
+
+    window.localStorage.setItem(`${PROJECT_MEMO_OPEN_STORAGE_KEY}:${user.uid}:${projectId}`, String(isMemoOpen));
+  }, [isMemoOpen, projectId, user?.uid]);
+
   const currentUserRole = project?.currentUserRole ?? "viewer";
   const canEditScripts = canEditProjectContent(currentUserRole);
   const canManageMembers = canManageProjectMembers(currentUserRole);
+  const isMemoDirty = memoContent !== (project?.memoContent ?? "");
+
+  const handleSaveMemo = useCallback(async () => {
+    if (!project || !canEditScripts || !isMemoDirty || isSavingMemo) {
+      return;
+    }
+
+    try {
+      setIsSavingMemo(true);
+      setErrorMessage(null);
+      await updateProjectMemoContent(projectId, { memoContent });
+      setProject((prev) =>
+        prev
+          ? {
+              ...prev,
+              memoContent,
+              updatedAt: new Date().toISOString()
+            }
+          : prev
+      );
+    } catch {
+      setErrorMessage("メモの保存に失敗しました。");
+    } finally {
+      setIsSavingMemo(false);
+    }
+  }, [canEditScripts, isMemoDirty, isSavingMemo, memoContent, project, projectId]);
+
+  const handleMemoKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Enter" && event.shiftKey) {
+        event.preventDefault();
+        void handleSaveMemo();
+      }
+    },
+    [handleSaveMemo]
+  );
+
+  const handleMemoTouchStart = (event: TouchEvent<HTMLElement>) => {
+    const touch = event.touches[0];
+    memoTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleMemoTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const touchStart = memoTouchStartRef.current;
+    const touch = event.changedTouches[0];
+    memoTouchStartRef.current = null;
+
+    if (!touchStart) {
+      return;
+    }
+
+    const deltaX = touch.clientX - touchStart.x;
+    const deltaY = touch.clientY - touchStart.y;
+
+    if (deltaX > 60 && Math.abs(deltaY) < 40) {
+      setIsMemoOpen(false);
+    }
+  };
 
   const handleDeleteScript = async (scriptId: string) => {
     if (!canEditScripts) {
@@ -1073,6 +1182,92 @@ const ProjectDetailPage = () => {
           </Box>
         </Stack>
       </Container>
+      <Tooltip label={isMemoOpen ? "メモを閉じる" : "メモを開く"} hasArrow placement="left">
+        <IconButton
+          aria-label={isMemoOpen ? "メモを閉じる" : "メモを開く"}
+          icon={<MemoIcon />}
+          position="fixed"
+          top={{ base: 4, md: 6 }}
+          right={{ base: 4, md: 6 }}
+          zIndex={50}
+          colorScheme="teal"
+          variant={isMemoOpen ? "solid" : "outline"}
+          bg={isMemoOpen ? "teal.500" : "white"}
+          rounded="full"
+          boxShadow="lg"
+          onClick={() => setIsMemoOpen((prev) => !prev)}
+        />
+      </Tooltip>
+      {isMemoOpen ? (
+        <Box
+          position="fixed"
+          inset={0}
+          zIndex={40}
+          onClick={() => setIsMemoOpen(false)}
+          sx={{
+            "@media print": {
+              display: "none"
+            }
+          }}
+        >
+          <Box
+            role="dialog"
+            aria-label="プロジェクトメモ"
+            position="absolute"
+            top={{ base: 16, md: 20 }}
+            right={{ base: 4, md: 6 }}
+            w={{ base: "calc(100vw - 32px)", md: "420px", lg: "max(320px, 33vw)" }}
+            maxW="calc(100vw - 32px)"
+            maxH={{ base: "calc(100vh - 88px)", md: "calc(100vh - 104px)" }}
+            bg="white"
+            borderWidth="1px"
+            rounded="md"
+            boxShadow="2xl"
+            p={{ base: 4, lg: 6 }}
+            overflowY="auto"
+            onClick={(event) => event.stopPropagation()}
+            onTouchStart={handleMemoTouchStart}
+            onTouchEnd={handleMemoTouchEnd}
+          >
+            <Stack spacing={4}>
+              <Stack direction="row" justify="space-between" align="center">
+                <Heading size="md">メモ</Heading>
+                <Tooltip label="閉じる" hasArrow>
+                  <IconButton
+                    aria-label="メモを閉じる"
+                    icon={<CloseIcon />}
+                    size="sm"
+                    variant="ghost"
+                    rounded="full"
+                    onClick={() => setIsMemoOpen(false)}
+                  />
+                </Tooltip>
+              </Stack>
+              <Textarea
+                value={memoContent}
+                onChange={(event) => setMemoContent(event.target.value)}
+                onKeyDown={handleMemoKeyDown}
+                placeholder="今後のテーマや参考URLをテキストで記録できます"
+                minH={{ base: "55vh", lg: "calc(100vh - 220px)" }}
+                h={{ base: "55vh", lg: "calc(100vh - 220px)" }}
+                resize="none"
+                readOnly={!canEditScripts}
+              />
+              {canEditScripts ? (
+                <Button
+                  alignSelf="flex-start"
+                  colorScheme="teal"
+                  onClick={() => void handleSaveMemo()}
+                  isLoading={isSavingMemo}
+                  isDisabled={!isMemoDirty}
+                >
+                  保存
+                </Button>
+              ) : null}
+            </Stack>
+          </Box>
+        </Box>
+      ) : null}
     </Box>
   );
 };
