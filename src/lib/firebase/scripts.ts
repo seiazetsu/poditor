@@ -10,10 +10,13 @@ import {
   collection,
   getDocs,
   query,
+  runTransaction,
   updateDoc,
   writeBatch,
   where
 } from "firebase/firestore";
+
+import { getScriptTab, getTabStatuses, toScriptStatus, SCRIPT_STATUS_OPTIONS, type ScriptTab } from "@/lib/scripts/status";
 
 import { getFirebaseFirestore } from "@/lib/firebase/firestore";
 import { fetchProjectScriptItems } from "@/lib/firebase/items";
@@ -62,6 +65,7 @@ type CreateScriptInput = {
 };
 
 type CreateProjectScriptInput = {
+  status?: "idea" | "draft";
   title: string;
   editorMode: ScriptEditorMode;
 };
@@ -117,14 +121,6 @@ const toUpdatedAtIso = (value: unknown): string => {
 
 const normalizeSortOrder = (value: unknown, fallback: number): number => {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-};
-
-const toScriptStatus = (value: unknown): ScriptStatus => {
-  if (value === "almost_completed" || value === "completed" || value === "recorded") {
-    return value;
-  }
-
-  return "draft";
 };
 
 const toScriptEditorMode = (value: unknown): ScriptEditorMode => {
@@ -315,9 +311,31 @@ export const createScript = async ({ ownerUid, title }: CreateScriptInput): Prom
   return docRef.id;
 };
 
-export const fetchScriptsByProjectId = async (projectId: string): Promise<ScriptSummary[]> => {
+// Older releases did not write status. Backfill once before using filtered queries.
+export const migrateProjectScriptStatuses = async (projectId: string): Promise<void> => {
+  const firestore = getFirebaseFirestore();
+  const projectRef = doc(firestore, "projects", projectId);
+  const project = await getDocFromServer(projectRef);
+  if (project.data()?.scriptStatusSchemaVersion === 1) return;
+  const snapshot = await getDocs(getProjectScriptsCollection(projectId));
+  const candidates = snapshot.docs.filter((entry) => !SCRIPT_STATUS_OPTIONS.includes(entry.data().status));
+  for (let offset = 0; offset < candidates.length; offset += 100) {
+    const chunk = candidates.slice(offset, offset + 100);
+    await runTransaction(firestore, async (transaction) => {
+      const current = await Promise.all(chunk.map((entry) => transaction.get(entry.ref)));
+      current.forEach((entry) => {
+        if (entry.exists() && !SCRIPT_STATUS_OPTIONS.includes(entry.data().status)) {
+          transaction.update(entry.ref, { status: "draft" });
+        }
+      });
+    });
+  }
+  await updateDoc(projectRef, { scriptStatusSchemaVersion: 1 });
+};
+
+export const fetchScriptsByProjectId = async (projectId: string, tab: ScriptTab): Promise<ScriptSummary[]> => {
   const scriptsRef = getProjectScriptsCollection(projectId);
-  const snapshot = await getDocs(scriptsRef);
+  const snapshot = await getDocs(query(scriptsRef, where("status", "in", getTabStatuses(tab))));
 
   return snapshot.docs
     .map((scriptDoc) => {
@@ -335,7 +353,7 @@ export const fetchScriptsByProjectId = async (projectId: string): Promise<Script
       if (a.sortOrder !== b.sortOrder) {
         return a.sortOrder - b.sortOrder;
       }
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() || a.id.localeCompare(b.id);
     });
 };
 
@@ -351,7 +369,7 @@ export const createProjectScript = async (
   const scriptsRef = getProjectScriptsCollection(projectId);
   const docRef = await addDoc(scriptsRef, {
     title: trimmedTitle,
-    status: "draft",
+    status: input.status === "idea" ? "idea" : "draft",
     editorMode: input.editorMode,
     memoContent: "",
     sortOrder: -Date.now(),
@@ -612,9 +630,16 @@ export const updateProjectScriptStatus = async (
   const firestore = getFirebaseFirestore();
   const scriptRef = doc(firestore, "projects", projectId, "scripts", scriptId);
 
-  await updateDoc(scriptRef, {
-    status: input.status,
-    updatedAt: serverTimestamp()
+  await runTransaction(firestore, async (transaction) => {
+    const snapshot = await transaction.get(scriptRef);
+    if (!snapshot.exists()) throw new Error("台本が見つかりません。");
+    const previousStatus = toScriptStatus(snapshot.data().status);
+    const changedTab = getScriptTab(previousStatus) !== getScriptTab(input.status);
+    transaction.update(scriptRef, {
+      status: input.status,
+      ...(changedTab ? { sortOrder: -Date.now() } : {}),
+      updatedAt: serverTimestamp()
+    });
   });
 };
 
@@ -685,20 +710,23 @@ export const reorderScripts = async (
 
 export const reorderProjectScripts = async (
   projectId: string,
+  tab: ScriptTab,
   scriptIdsInOrder: string[]
 ): Promise<void> => {
+  if (new Set(scriptIdsInOrder).size !== scriptIdsInOrder.length) {
+    throw new Error("台本が重複しています。");
+  }
   const firestore = getFirebaseFirestore();
-  const batch = writeBatch(firestore);
-
-  scriptIdsInOrder.forEach((scriptId, index) => {
-    const scriptRef = doc(firestore, "projects", projectId, "scripts", scriptId);
-    batch.update(scriptRef, {
-      sortOrder: index,
-      updatedAt: serverTimestamp()
+  await runTransaction(firestore, async (transaction) => {
+    const refs = scriptIdsInOrder.map((id) => doc(firestore, "projects", projectId, "scripts", id));
+    const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
+    if (snapshots.some((snapshot) => !snapshot.exists() || getScriptTab(toScriptStatus(snapshot.data()?.status)) !== tab)) {
+      throw new Error("台本の所属タブが変更されました。再読み込みしてください。");
+    }
+    refs.forEach((ref, index) => {
+      transaction.update(ref, { sortOrder: index });
     });
   });
-
-  await batch.commit();
 };
 
 export const deleteScript = async (scriptId: string): Promise<void> => {

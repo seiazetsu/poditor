@@ -26,7 +26,17 @@ import {
   Stack,
   Text,
   Textarea,
-  Tooltip
+  Tooltip,
+  Tabs,
+  TabList,
+  TabPanels,
+  TabPanel,
+  Tab,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  useToast
 } from "@chakra-ui/react";
 
 import { useProjectMemo } from "@/hooks/use-project-memo";
@@ -45,12 +55,14 @@ import {
   deleteProjectScript,
   duplicateProjectScript,
   fetchScriptsByProjectId,
+  migrateProjectScriptStatuses,
   reorderProjectScripts,
   updateProjectScriptStatus,
   updateProjectScriptTitle
 } from "@/lib/firebase/scripts";
 import { formatItemsAsScriptText } from "@/lib/scripts/text-mode";
 import { ProjectDetail, ProjectMember, ProjectMemberRole } from "@/types/project";
+import { ACTIVE_SCRIPT_STATUSES, SCRIPT_STATUS_LABELS, SCRIPT_STATUS_COLOR_SCHEMES, SCRIPT_TABS, SCRIPT_TAB_LABELS, getScriptTab, getNextScriptStatus, type ScriptTab } from "@/lib/scripts/status";
 import { ScriptStatus, ScriptSummary } from "@/types/script";
 
 const SettingsIcon = () => (
@@ -205,20 +217,6 @@ const formatCreatedAt = (createdAt: string): string => {
   }).format(new Date(createdAt));
 };
 
-const SCRIPT_STATUS_LABELS: Record<ScriptStatus, string> = {
-  draft: "下書き",
-  almost_completed: "ほぼ完成",
-  completed: "完成",
-  recorded: "収録済"
-};
-
-const SCRIPT_STATUS_COLOR_SCHEMES: Record<ScriptStatus, string> = {
-  draft: "gray",
-  almost_completed: "blue",
-  completed: "green",
-  recorded: "purple"
-};
-const ALL_SCRIPT_STATUSES: ScriptStatus[] = ["draft", "almost_completed", "completed", "recorded"];
 const SCRIPT_STATUS_FILTER_STORAGE_KEY = "poditor-project-script-status-filter";
 const PROJECT_MEMO_OPEN_STORAGE_KEY = "poditor-project-memo-open";
 
@@ -248,25 +246,12 @@ const TextModeIcon = () => (
   </Icon>
 );
 
-const getNextScriptStatus = (status: ScriptStatus): ScriptStatus => {
-  if (status === "draft") {
-    return "almost_completed";
-  }
-
-  if (status === "almost_completed") {
-    return "completed";
-  }
-
-  if (status === "completed") {
-    return "recorded";
-  }
-
-  return "draft";
-};
-
 const ProjectDetailPage = () => {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
+  const toast = useToast();
+  const [activeTab, setActiveTab] = useState<ScriptTab>("scripts");
+  const loadRequestRef = useRef(0);
   const { user } = useAuth();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [members, setMembers] = useState<ProjectMember[]>([]);
@@ -280,7 +265,7 @@ const ProjectDetailPage = () => {
   const [isSavingScriptTitleId, setIsSavingScriptTitleId] = useState<string | null>(null);
   const [isSavingScriptStatusId, setIsSavingScriptStatusId] = useState<string | null>(null);
   const [isExportingScriptId, setIsExportingScriptId] = useState<string | null>(null);
-  const [selectedStatuses, setSelectedStatuses] = useState<ScriptStatus[]>(ALL_SCRIPT_STATUSES);
+  const [selectedStatuses, setSelectedStatuses] = useState<ScriptStatus[]>(ACTIVE_SCRIPT_STATUSES);
   const [memberEmailInput, setMemberEmailInput] = useState("");
   const [memberRoleInput, setMemberRoleInput] = useState<ProjectMemberRole>("viewer");
   const [isAddingMember, setIsAddingMember] = useState(false);
@@ -300,11 +285,14 @@ const ProjectDetailPage = () => {
       return;
     }
 
+    const request = ++loadRequestRef.current;
     setIsLoading(true);
+    setScripts([]);
     setErrorMessage(null);
 
     try {
       const projectData = await fetchProjectByIdForUser(projectId, user.uid);
+      if (request !== loadRequestRef.current) return;
       if (!projectData) {
         setProject(null);
         setMembers([]);
@@ -313,23 +301,31 @@ const ProjectDetailPage = () => {
         return;
       }
 
+      if (projectData.scriptStatusSchemaVersion !== 1 && canEditProjectContent(projectData.currentUserRole)) {
+        await migrateProjectScriptStatuses(projectId);
+        projectData.scriptStatusSchemaVersion = 1;
+      }
+      if (request !== loadRequestRef.current) return;
+
       const [nextMembers, nextScripts] = await Promise.all([
         fetchProjectMembers(projectId),
-        fetchScriptsByProjectId(projectId)
+        fetchScriptsByProjectId(projectId, activeTab)
       ]);
 
+      if (request !== loadRequestRef.current) return;
       setProject(projectData);
       setMembers(nextMembers);
       setScripts(nextScripts);
     } catch {
-      setErrorMessage("プロジェクト詳細の取得に失敗しました。");
+      if (request === loadRequestRef.current) setErrorMessage("プロジェクト詳細の取得に失敗しました。");
     } finally {
-      setIsLoading(false);
+      if (request === loadRequestRef.current) setIsLoading(false);
     }
-  }, [projectId, user]);
+  }, [activeTab, projectId, user]);
 
   useEffect(() => {
     void loadProject();
+    return () => { loadRequestRef.current += 1; };
   }, [loadProject]);
 
   useEffect(() => {
@@ -349,7 +345,7 @@ const ProjectDetailPage = () => {
 
     const savedValue = window.localStorage.getItem(`${SCRIPT_STATUS_FILTER_STORAGE_KEY}:${user.uid}:${projectId}`);
     if (!savedValue) {
-      setSelectedStatuses(ALL_SCRIPT_STATUSES);
+      setSelectedStatuses(ACTIVE_SCRIPT_STATUSES);
       hasLoadedStatusFilterRef.current = true;
       return;
     }
@@ -357,16 +353,16 @@ const ProjectDetailPage = () => {
     try {
       const parsed = JSON.parse(savedValue);
       if (!Array.isArray(parsed)) {
-        setSelectedStatuses(ALL_SCRIPT_STATUSES);
+        setSelectedStatuses(ACTIVE_SCRIPT_STATUSES);
         hasLoadedStatusFilterRef.current = true;
         return;
       }
 
-      const nextStatuses = ALL_SCRIPT_STATUSES.filter((status) => parsed.includes(status));
+      const nextStatuses = ACTIVE_SCRIPT_STATUSES.filter((status) => parsed.includes(status));
       setSelectedStatuses(nextStatuses);
       hasLoadedStatusFilterRef.current = true;
     } catch {
-      setSelectedStatuses(ALL_SCRIPT_STATUSES);
+      setSelectedStatuses(ACTIVE_SCRIPT_STATUSES);
       hasLoadedStatusFilterRef.current = true;
     }
   }, [projectId, user?.uid]);
@@ -431,7 +427,7 @@ const ProjectDetailPage = () => {
   };
 
   const handleDeleteScript = async (scriptId: string) => {
-    if (!canEditScripts) {
+    if (!canEditScripts || isListBusy) {
       return;
     }
 
@@ -453,7 +449,7 @@ const ProjectDetailPage = () => {
   };
 
   const handleDuplicateScript = async (scriptId: string) => {
-    if (!canEditScripts) {
+    if (!canEditScripts || isListBusy) {
       return;
     }
 
@@ -462,7 +458,7 @@ const ProjectDetailPage = () => {
 
     try {
       await duplicateProjectScript(projectId, scriptId);
-      const nextScripts = await fetchScriptsByProjectId(projectId);
+      const nextScripts = await fetchScriptsByProjectId(projectId, activeTab);
       setScripts(nextScripts);
     } catch {
       setErrorMessage("台本の複製に失敗しました。");
@@ -472,7 +468,7 @@ const ProjectDetailPage = () => {
   };
 
   const handleStartEditingScriptTitle = (script: ScriptSummary) => {
-    if (!canEditScripts) {
+    if (!canEditScripts || isListBusy) {
       return;
     }
 
@@ -502,7 +498,7 @@ const ProjectDetailPage = () => {
   };
 
   const handleSaveScriptTitle = async (scriptId: string) => {
-    if (!canEditScripts) {
+    if (!canEditScripts || isListBusy) {
       return;
     }
 
@@ -551,25 +547,23 @@ const ProjectDetailPage = () => {
     }
   };
 
-  const handleCycleScriptStatus = async (script: ScriptSummary) => {
-    if (!canEditScripts) {
+  const handleChangeScriptStatus = async (script: ScriptSummary, nextStatus: ScriptStatus) => {
+    if (!canEditScripts || isListBusy) {
       return;
     }
-
-    const nextStatus = getNextScriptStatus(script.status);
 
     setIsSavingScriptStatusId(script.id);
     setErrorMessage(null);
 
     try {
       await updateProjectScriptStatus(projectId, script.id, { status: nextStatus });
-      setScripts((prev) =>
-        prev.map((currentScript) =>
-          currentScript.id === script.id
-            ? { ...currentScript, status: nextStatus, updatedAt: new Date().toISOString() }
-            : currentScript
-        )
-      );
+      if (getScriptTab(nextStatus) !== activeTab) {
+        setScripts((previous) => previous.filter((current) => current.id !== script.id));
+        toast({ title: `「${script.title}」を${SCRIPT_TAB_LABELS[getScriptTab(nextStatus)]}タブに移動しました`, status: "success", duration: 5000, isClosable: true });
+      } else {
+        setScripts((previous) => previous.map((current) => current.id === script.id
+          ? { ...current, status: nextStatus, updatedAt: new Date().toISOString() } : current));
+      }
     } catch {
       setErrorMessage("台本ステータスの更新に失敗しました。");
     } finally {
@@ -662,12 +656,15 @@ const ProjectDetailPage = () => {
     }
   };
 
-  const isAllStatusesSelected =
-    selectedStatuses.length === ALL_SCRIPT_STATUSES.length &&
-    ALL_SCRIPT_STATUSES.every((status) => selectedStatuses.includes(status));
+  const isListBusy = Boolean(isReorderingScripts || isSavingScriptStatusId || isSavingScriptTitleId || isDeletingScriptId || isDuplicatingScriptId);
+
+  const isAllStatusesSelected = activeTab !== "scripts" || (
+    selectedStatuses.length === ACTIVE_SCRIPT_STATUSES.length &&
+    ACTIVE_SCRIPT_STATUSES.every((status) => selectedStatuses.includes(status)));
 
   const canReorderScripts =
     canEditScripts &&
+    !isLoading &&
     isAllStatusesSelected &&
     !editingScriptId &&
     !isSavingScriptStatusId &&
@@ -720,17 +717,18 @@ const ProjectDetailPage = () => {
     try {
       await reorderProjectScripts(
         projectId,
+        activeTab,
         reordered.map((script) => script.id)
       );
     } catch {
       setScripts(previousScripts);
-      setErrorMessage("台本一覧の並び替え保存に失敗しました。");
+      setErrorMessage("台本一覧の並び替え保存に失敗しました。再読み込みしてからお試しください。");
     } finally {
       setIsReorderingScripts(false);
     }
   };
 
-  const filteredScripts = scripts.filter((script) => selectedStatuses.includes(script.status));
+  const filteredScripts = isLoading ? [] : scripts.filter((script) => getScriptTab(script.status) === activeTab && (activeTab !== "scripts" || selectedStatuses.includes(script.status)));
 
   const handleToggleStatusFilter = (status: ScriptStatus) => {
     setSelectedStatuses((prev) =>
@@ -876,7 +874,7 @@ const ProjectDetailPage = () => {
                   <Tooltip label="新規台本作成" hasArrow>
                     <IconButton
                       as={NextLink}
-                      href={`/projects/${projectId}/scripts/new`}
+                      href={`/projects/${projectId}/scripts/new${activeTab === "ideas" ? "?status=idea" : ""}`}
                       aria-label="新規台本作成"
                       icon={<AddIcon />}
                       size="sm"
@@ -888,31 +886,53 @@ const ProjectDetailPage = () => {
                 ) : null}
               </Stack>
 
-              <FormControl>
+              <Tabs index={SCRIPT_TABS.indexOf(activeTab)} onChange={(index) => {
+                if (isListBusy || editingScriptId) return;
+                loadRequestRef.current += 1;
+                setIsLoading(true);
+                setScripts([]);
+                setDraggedScriptId(null);
+                setDropTargetScriptId(null);
+                setActiveTab(SCRIPT_TABS[index]);
+              }} colorScheme="teal">
+                <TabList aria-label="台本の分類">
+                  {SCRIPT_TABS.map((tab) => <Tab key={tab} isDisabled={isListBusy || Boolean(editingScriptId)}>{SCRIPT_TAB_LABELS[tab]}</Tab>)}
+                </TabList>
+                <TabPanels>
+                  {SCRIPT_TABS.map((tab) => (
+                    <TabPanel key={tab} px={0} pb={0}>
+                      {tab === activeTab ? <Stack spacing={4}>
+
+              {activeTab === "scripts" ? <FormControl>
                 <Stack direction={{ base: "column", sm: "row" }} spacing={{ base: 2, sm: 4 }}>
-                  {ALL_SCRIPT_STATUSES.map((status) => (
+                  {ACTIVE_SCRIPT_STATUSES.map((status) => (
                     <Checkbox
                       key={status}
                       isChecked={selectedStatuses.includes(status)}
                       onChange={() => handleToggleStatusFilter(status)}
+                      isDisabled={isListBusy}
                       colorScheme="teal"
                     >
                       {SCRIPT_STATUS_LABELS[status]}
                     </Checkbox>
                   ))}
                 </Stack>
-              </FormControl>
+              </FormControl> : null}
 
               {!isAllStatusesSelected ? (
                 <Text color="gray.500" fontSize="sm">
-                  並び替えは全ステータス選択時に利用できます。
+                  台本タブの並び替えは、4種類のステータスをすべて選択すると利用できます。
                 </Text>
+              ) : null}
+
+              {!isLoading && project && project.scriptStatusSchemaVersion !== 1 ? (
+                <Alert status="warning"><AlertIcon />古い台本を表示するための準備が必要です。編集権限のあるメンバーが一度このプロジェクトを開くと完了します。</Alert>
               ) : null}
 
               {isLoading ? <Text color="gray.600">台本を読み込んでいます...</Text> : null}
 
               {!isLoading && scripts.length === 0 ? (
-                <Text color="gray.600">このプロジェクトにはまだ台本がありません。</Text>
+                <Text color="gray.600">このタブにはまだ台本がありません。</Text>
               ) : null}
 
               {!isLoading && scripts.length > 0 && filteredScripts.length === 0 ? (
@@ -1036,27 +1056,38 @@ const ProjectDetailPage = () => {
                           as="button"
                           type="button"
                           colorScheme={SCRIPT_STATUS_COLOR_SCHEMES[script.status]}
+                          bg={script.status === "archived" ? "black" : undefined}
+                          color={script.status === "archived" ? "white" : undefined}
                           borderRadius="full"
                           px={2.5}
                           py={1}
                           flexShrink={0}
                           cursor={
-                            !canEditScripts || isSavingScriptStatusId === script.id || editingScriptId === script.id
+                            !canEditScripts || isListBusy || activeTab !== "scripts" || editingScriptId === script.id
                               ? "default"
                               : "pointer"
                           }
                           opacity={isSavingScriptStatusId === script.id ? 0.6 : 1}
                           transition="opacity 0.2s ease"
                           onClick={() => {
-                            if (!canEditScripts || isSavingScriptStatusId === script.id || editingScriptId === script.id) {
+                            if (!canEditScripts || isListBusy || activeTab !== "scripts" || editingScriptId === script.id) {
                               return;
                             }
 
-                            void handleCycleScriptStatus(script);
+                            void handleChangeScriptStatus(script, getNextScriptStatus(script.status));
                           }}
                         >
                           {SCRIPT_STATUS_LABELS[script.status]}
                         </Badge>
+                        {canEditScripts ? (
+                          <Menu>
+                            <MenuButton as={Button} size="xs" variant="ghost" isDisabled={isListBusy || Boolean(editingScriptId)} aria-label={`${script.title}の移動`}>移動</MenuButton>
+                            <MenuList>
+                              {script.status === "idea" ? <MenuItem onClick={() => void handleChangeScriptStatus(script, "draft")}>下書きに進める</MenuItem> : <MenuItem onClick={() => void handleChangeScriptStatus(script, "idea")}>案に戻す</MenuItem>}
+                              {script.status === "archived" ? <MenuItem onClick={() => void handleChangeScriptStatus(script, "recorded")}>収録済に戻す</MenuItem> : <MenuItem onClick={() => void handleChangeScriptStatus(script, "archived")}>アーカイブする</MenuItem>}
+                            </MenuList>
+                          </Menu>
+                        ) : null}
                       </Stack>
                       <Stack direction="row" spacing={1} flexShrink={0}>
                         <Tooltip label="基本設定" hasArrow>
@@ -1110,7 +1141,7 @@ const ProjectDetailPage = () => {
                               void handleDuplicateScript(script.id);
                             }}
                             isLoading={isDuplicatingScriptId === script.id}
-                            isDisabled={isDeletingScriptId === script.id || editingScriptId === script.id || !canEditScripts}
+                            isDisabled={isListBusy || Boolean(editingScriptId) || !canEditScripts}
                             rounded="full"
                             display={canEditScripts ? "inline-flex" : "none"}
                           />
@@ -1127,7 +1158,7 @@ const ProjectDetailPage = () => {
                             }}
                             isLoading={isDeletingScriptId === script.id}
                             isDisabled={
-                              isDuplicatingScriptId === script.id ||
+                              isListBusy ||
                               editingScriptId === script.id ||
                               project?.ownerUid !== user?.uid ||
                               !canEditScripts
@@ -1141,6 +1172,11 @@ const ProjectDetailPage = () => {
                   </Stack>
                 </Box>
               ))}
+                      </Stack> : null}
+                    </TabPanel>
+                  ))}
+                </TabPanels>
+              </Tabs>
             </Stack>
           </Box>
         </Stack>

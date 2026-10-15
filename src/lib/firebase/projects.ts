@@ -24,6 +24,7 @@ type ProjectDocument = {
   createdAt?: unknown;
   updatedAt?: unknown;
   memoContent?: unknown;
+  scriptStatusSchemaVersion?: unknown;
 };
 
 type MemberDocument = {
@@ -117,6 +118,7 @@ export const createProject = async ({ name, ownerUid, ownerEmail }: CreateProjec
     name: trimmedName,
     ownerUid,
     memoContent: "",
+    scriptStatusSchemaVersion: 1,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -235,7 +237,8 @@ export const fetchProjectByIdForUser = async (
     createdAt: toIsoDate(data.createdAt),
     updatedAt: toIsoDate(data.updatedAt),
     currentUserRole: toMemberRole(memberData.role),
-    memoContent: toProjectMemoContent(data.memoContent)
+    memoContent: toProjectMemoContent(data.memoContent),
+    scriptStatusSchemaVersion: data.scriptStatusSchemaVersion === 1 ? 1 : 0
   };
 };
 

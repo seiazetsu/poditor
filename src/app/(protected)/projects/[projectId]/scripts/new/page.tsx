@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import NextLink from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
   AlertIcon,
@@ -28,6 +28,8 @@ import { ScriptEditorMode } from "@/types/script";
 const ProjectScriptNewPage = () => {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [status, setStatus] = useState<"idea" | "draft">(searchParams.get("status") === "idea" ? "idea" : "draft");
   const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -86,7 +88,8 @@ const ProjectScriptNewPage = () => {
     try {
       const scriptId = await createProjectScript(projectId, {
         title: trimmedTitle,
-        editorMode
+        editorMode,
+        status
       });
       router.replace(`/projects/${projectId}/scripts/${scriptId}`);
     } catch {
@@ -149,6 +152,14 @@ const ProjectScriptNewPage = () => {
                 onChange={(event) => setTitle(event.target.value)}
                 maxLength={120}
               />
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>ステータス</FormLabel>
+              <Select value={status} onChange={(event) => setStatus(event.target.value === "idea" ? "idea" : "draft")}>
+                <option value="idea">案</option>
+                <option value="draft">下書き</option>
+              </Select>
             </FormControl>
 
             <FormControl isRequired>

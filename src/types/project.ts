@@ -9,6 +9,7 @@ export type ProjectDetail = ProjectSummary & {
   createdAt: string;
   currentUserRole: ProjectMemberRole;
   memoContent: string;
+  scriptStatusSchemaVersion: number;
 };
 
 export type ProjectMemberRole = "owner" | "member" | "viewer";

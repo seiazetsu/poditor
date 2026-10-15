@@ -72,6 +72,10 @@ service cloud.firestore {
           && request.resource.data.ownerUid == resource.data.ownerUid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["memoContent", "updatedAt"])
           && request.resource.data.memoContent is string
+        ) || (
+          canEditProject(projectId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["scriptStatusSchemaVersion"])
+          && request.resource.data.scriptStatusSchemaVersion == 1
         );
       allow delete: if isProjectOwner(projectId);
 
