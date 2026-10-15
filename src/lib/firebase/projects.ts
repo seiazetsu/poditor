@@ -6,6 +6,8 @@ import {
   getDoc,
   getDocs,
   query,
+  onSnapshot,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
@@ -45,6 +47,7 @@ type AddProjectMemberInput = {
 
 type UpdateProjectMemoContentInput = {
   memoContent: string;
+  expectedContent: string;
 };
 
 type UserProjectMembershipDocument = {
@@ -236,6 +239,31 @@ export const fetchProjectByIdForUser = async (
   };
 };
 
+export class ProjectMemoConflictError extends Error {
+  constructor(public readonly latestContent: string) {
+    super("Project memo was updated elsewhere");
+  }
+}
+
+export const subscribeProjectMemo = (
+  projectId: string,
+  onContent: (content: string, fromCache: boolean) => void,
+  onError: () => void
+) => onSnapshot(
+  doc(getFirebaseFirestore(), "projects", projectId),
+  { includeMetadataChanges: true },
+  (snapshot) => {
+    if (!snapshot.exists()) {
+      onError();
+      return;
+    }
+    if (!snapshot.metadata.hasPendingWrites) {
+      onContent(toProjectMemoContent(snapshot.data().memoContent), snapshot.metadata.fromCache);
+    }
+  },
+  onError
+);
+
 export const updateProjectMemoContent = async (
   projectId: string,
   input: UpdateProjectMemoContentInput
@@ -243,9 +271,17 @@ export const updateProjectMemoContent = async (
   const firestore = getFirebaseFirestore();
   const projectRef = doc(firestore, "projects", projectId);
 
-  await updateDoc(projectRef, {
-    memoContent: input.memoContent,
-    updatedAt: serverTimestamp()
+  await runTransaction(firestore, async (transaction) => {
+    const snapshot = await transaction.get(projectRef);
+    if (!snapshot.exists()) throw new Error("Project not found");
+    const current = toProjectMemoContent(snapshot.data().memoContent);
+    if (current !== input.expectedContent && current !== input.memoContent) {
+      throw new ProjectMemoConflictError(current);
+    }
+    transaction.update(projectRef, {
+      memoContent: input.memoContent,
+      updatedAt: serverTimestamp()
+    });
   });
 };
 

@@ -29,12 +29,13 @@ import {
   Tooltip
 } from "@chakra-ui/react";
 
+import { useProjectMemo } from "@/hooks/use-project-memo";
+
 import { useAuth } from "@/components/auth/auth-provider";
 import {
   addProjectMember,
   fetchProjectByIdForUser,
   fetchProjectMembers,
-  updateProjectMemoContent,
   updateProjectMemberRole
 } from "@/lib/firebase/projects";
 import { canEditProjectContent, canManageProjectMembers } from "@/lib/permissions/project";
@@ -285,8 +286,6 @@ const ProjectDetailPage = () => {
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [isUpdatingMemberRoleId, setIsUpdatingMemberRoleId] = useState<string | null>(null);
   const [isMemoOpen, setIsMemoOpen] = useState(false);
-  const [memoContent, setMemoContent] = useState("");
-  const [isSavingMemo, setIsSavingMemo] = useState(false);
   const [draggedScriptId, setDraggedScriptId] = useState<string | null>(null);
   const [dropTargetScriptId, setDropTargetScriptId] = useState<string | null>(null);
   const [isReorderingScripts, setIsReorderingScripts] = useState(false);
@@ -320,7 +319,6 @@ const ProjectDetailPage = () => {
       ]);
 
       setProject(projectData);
-      setMemoContent(projectData.memoContent);
       setMembers(nextMembers);
       setScripts(nextScripts);
     } catch {
@@ -408,42 +406,7 @@ const ProjectDetailPage = () => {
   const currentUserRole = project?.currentUserRole ?? "viewer";
   const canEditScripts = canEditProjectContent(currentUserRole);
   const canManageMembers = canManageProjectMembers(currentUserRole);
-  const isMemoDirty = memoContent !== (project?.memoContent ?? "");
-
-  const handleSaveMemo = useCallback(async () => {
-    if (!project || !canEditScripts || !isMemoDirty || isSavingMemo) {
-      return;
-    }
-
-    try {
-      setIsSavingMemo(true);
-      setErrorMessage(null);
-      await updateProjectMemoContent(projectId, { memoContent });
-      setProject((prev) =>
-        prev
-          ? {
-              ...prev,
-              memoContent,
-              updatedAt: new Date().toISOString()
-            }
-          : prev
-      );
-    } catch {
-      setErrorMessage("メモの保存に失敗しました。");
-    } finally {
-      setIsSavingMemo(false);
-    }
-  }, [canEditScripts, isMemoDirty, isSavingMemo, memoContent, project, projectId]);
-
-  const handleMemoKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === "Enter" && event.shiftKey) {
-        event.preventDefault();
-        void handleSaveMemo();
-      }
-    },
-    [handleSaveMemo]
-  );
+  const memo = useProjectMemo(projectId, user?.uid, canEditScripts);
 
   const handleMemoTouchStart = (event: TouchEvent<HTMLElement>) => {
     const touch = event.touches[0];
@@ -1243,23 +1206,42 @@ const ProjectDetailPage = () => {
                   />
                 </Tooltip>
               </Stack>
+              <Text fontSize="sm" color="gray.600" role="status" aria-live="polite">
+                {!memo.ready ? "読み込み中" : memo.saving ? "保存中" : memo.error ? "同期・保存エラー" : !memo.connected ? "接続を確認中（最新の保存状態は未確認）" : memo.conflict ? "別の端末で更新されました" : memo.dirty ? "未保存" : "保存済み"}
+              </Text>
+              {memo.error ? <Alert status="error"><AlertIcon />{memo.error}</Alert> : null}
+              {memo.conflict ? (
+                <Stack spacing={2}>
+                  <Alert status="warning"><AlertIcon />別の端末で更新されました。入力内容を保持しています。最新の内容と比較して選択してください。</Alert>
+                  <Text fontSize="sm">最新の保存内容</Text>
+                  <Box whiteSpace="pre-wrap" maxH="160px" overflowY="auto" borderWidth="1px" p={2}>{memo.remote || "（空のメモ）"}</Box>
+                  <Button size="sm" onClick={memo.useLatest} isDisabled={memo.saving}>最新の内容に置き換える</Button>
+                  {canEditScripts ? <Button size="sm" onClick={memo.keepDraft} isDisabled={memo.saving}>入力内容を残して編集を続ける</Button> : null}
+                  <Text fontSize="xs">入力内容を残した場合は、必要な内容を統合してから保存してください。</Text>
+                </Stack>
+              ) : null}
               <Textarea
-                value={memoContent}
-                onChange={(event) => setMemoContent(event.target.value)}
-                onKeyDown={handleMemoKeyDown}
+                value={memo.draft}
+                onChange={(event) => memo.edit(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    void memo.save();
+                  }
+                }}
                 placeholder="今後のテーマや参考URLをテキストで記録できます"
                 minH={{ base: "55vh", lg: "calc(100vh - 220px)" }}
                 h={{ base: "55vh", lg: "calc(100vh - 220px)" }}
                 resize="none"
-                readOnly={!canEditScripts}
+                readOnly={!canEditScripts || !memo.ready || memo.saving}
               />
               {canEditScripts ? (
                 <Button
                   alignSelf="flex-start"
                   colorScheme="teal"
-                  onClick={() => void handleSaveMemo()}
-                  isLoading={isSavingMemo}
-                  isDisabled={!isMemoDirty}
+                  onClick={() => void memo.save()}
+                  isLoading={memo.saving}
+                  isDisabled={!memo.ready || !memo.connected || !memo.dirty || memo.conflict}
                 >
                   保存
                 </Button>
